@@ -1,10 +1,10 @@
-# GO.CRUD
+# EFramework CRUD for Go
 
 [![Reference](https://pkg.go.dev/badge/github.com/eframework-org/GO.CRUD.svg)](https://pkg.go.dev/github.com/eframework-org/GO.CRUD)
 [![Release](https://img.shields.io/github/v/tag/eframework-org/GO.CRUD)](https://github.com/eframework-org/GO.CRUD/tags)
 [![Report](https://goreportcard.com/badge/github.com/eframework-org/GO.CRUD)](https://goreportcard.com/report/github.com/eframework-org/GO.CRUD)
 
-GO.CRUD 是一个高性能的数据操作模块，集成了 Beego ORM 拓展和 NoSQL 键值对存储功能，通过统一的上下文缓存机制提供高效的数据访问服务。
+EFramework CRUD for Go 是一个高性能的数据操作模块，集成了 Beego ORM 拓展和 NoSQL 键值对存储功能，通过统一的上下文缓存机制提供高效的数据访问服务。
 
 ## 功能特性
 
