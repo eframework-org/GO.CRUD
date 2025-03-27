@@ -8,6 +8,12 @@ on:
         description: "测试是否通过"
         value: ${{ jobs.test.outputs.passed }}
 
+permissions:
+  checks: write
+  contents: read
+  actions: read
+  security-events: write
+
 jobs:
   test:
     name: 测试 ${{ matrix.os }} 环境
@@ -22,8 +28,10 @@ jobs:
     
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
-      
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
@@ -58,7 +66,7 @@ jobs:
           echo "📊 覆盖率报告："
           go tool cover -func=test-reports/coverage.out
           
-          echo "✅ 所有测试通过"
+          echo "✅ 测试通过"
           echo "passed=true" >> $GITHUB_OUTPUT
 
       - name: 上传报告

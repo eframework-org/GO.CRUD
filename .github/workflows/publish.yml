@@ -31,9 +31,9 @@ jobs:
           exit 1
 
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          lfs: true
 
       - name: 获取版本号
         id: get_version
@@ -68,6 +68,11 @@ jobs:
     name: 运行单元测试
     needs: prepare
     if: ${{ github.event.inputs.skip_tests != 'true' }}
+    permissions:
+      checks: write
+      contents: read
+      actions: read
+      security-events: write
     uses: ./.github/workflows/test.yml
 
   publish:
@@ -82,7 +87,9 @@ jobs:
       
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          lfs: true
       
       - name: 提交版本
         shell: bash
