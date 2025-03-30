@@ -94,8 +94,8 @@ jobs:
           echo "passed=true" >> $GITHUB_OUTPUT
 
       - name: 上传报告
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: test#${{ github.run_number }}.go${{ matrix.go }}.${{ matrix.os }}.reports
           path: test-reports
