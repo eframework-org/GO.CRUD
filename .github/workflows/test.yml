@@ -2,7 +2,29 @@ name: 单元测试
 
 on:
   workflow_dispatch:
+    inputs:
+      go_versions:
+        description: 'Go 版本：https://go.dev/dl'
+        required: false
+        type: string
+        default: '["1.21", "1.22", "1.23", "1.24"]'
+      target_platforms:
+        description: '目标平台：windows-latest, ubuntu-latest, macos-latest'
+        required: false
+        type: string
+        default: '["windows-latest", "ubuntu-latest", "macos-latest"]'
   workflow_call:
+    inputs:
+      go_versions:
+        description: 'Go 版本：https://go.dev/dl'
+        required: false
+        type: string
+        default: '["1.21", "1.22", "1.23", "1.24"]'
+      target_platforms:
+        description: '目标平台：windows-latest, ubuntu-latest, macos-latest'
+        required: false
+        type: string
+        default: '["windows-latest", "ubuntu-latest", "macos-latest"]'
     outputs:
       test_passed:
         description: "测试是否通过"
@@ -16,13 +38,15 @@ permissions:
 
 jobs:
   test:
-    name: 测试 ${{ matrix.os }} 环境
+    name: 测试 go${{ matrix.go }}.${{ matrix.os }} 环境
     runs-on: ${{ matrix.os }}
     env:
       TZ: 'Asia/Shanghai'
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        go: ${{ fromJson(github.event.inputs.go_versions || inputs.go_versions) }}
+        os: ${{ fromJson(github.event.inputs.target_platforms || inputs.target_platforms) }}
     outputs:
       passed: ${{ steps.test_result.outputs.passed }}
     
@@ -31,11 +55,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          
+
       - name: 设置 Go 环境
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: ${{ matrix.go }}
 
       - name: 设置 MySQL 环境
         uses: shogo82148/actions-setup-mysql@v1
@@ -73,9 +97,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-${{ matrix.os }}-reports
-          path: |
-            test-reports/coverage.out
-            test-reports/coverage.html
-            test-reports/output.log
+          name: test#${{ github.run_number }}.go${{ matrix.go }}.${{ matrix.os }}.reports
+          path: test-reports
           retention-days: 14
