@@ -3,17 +3,17 @@ name: 版本发布
 on:
   workflow_dispatch:
     inputs:
-      confirm:
-        description: '请输入仓库名 (owner/repo) 以确认发布'
-        required: true
       version:
-        description: '请输入版本号（如：1.0.0，无需v前缀，默认递增）'
+        description: '发布版本（如：1.0.0，默认递增）'
         required: false
-      skip_tests:
-        description: '跳过单元测试'
+      skip_test:
+        description: '忽略测试'
         type: boolean
         default: false
         required: false
+      confirm:
+        description: '请输入仓库名称（owner/repo）以确认发布'
+        required: true
 
 jobs:
   prepare:
@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+          fetch-depth: 0
 
       - name: 获取版本号
         id: get_version
@@ -67,7 +68,7 @@ jobs:
   test:
     name: 运行单元测试
     needs: prepare
-    if: ${{ github.event.inputs.skip_tests != 'true' }}
+    if: ${{ github.event.inputs.skip_test != 'true' }}
     permissions:
       checks: write
       contents: read
@@ -111,11 +112,12 @@ jobs:
           curl -s "https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}" > /dev/null || true
           curl -s "https://goreportcard.com/report/github.com/${{ github.repository }}" > /dev/null || true
           
-          echo "📚 模块文档将在稍后更新: https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}"
-          echo "📊 代码质量将在稍后更新: https://goreportcard.com/report/github.com/${{ github.repository }}"
+          echo "📚 模块文档: https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}"
+          echo "📊 代码报告: https://goreportcard.com/report/github.com/${{ github.repository }}"
           
       - name: 发布完成
         run: |
           echo "✅ 发布完成"
           echo "版本: v${{ needs.prepare.outputs.next_version }}"
           echo "标签: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.prepare.outputs.next_version }}"
+          echo "注册表: https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}"
