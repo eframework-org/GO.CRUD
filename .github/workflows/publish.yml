@@ -105,19 +105,9 @@ jobs:
           git pull origin
           git push origin "v$VERSION"
       
-      - name: 预热文档
-        shell: bash
-        run: |
-          echo "🔄 触发文档更新..."
-          curl -s "https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}" > /dev/null || true
-          curl -s "https://goreportcard.com/report/github.com/${{ github.repository }}" > /dev/null || true
-          
-          echo "📚 模块文档: https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}"
-          echo "📊 代码报告: https://goreportcard.com/report/github.com/${{ github.repository }}"
-          
       - name: 发布完成
         run: |
-          echo "✅ 发布完成"
           echo "版本: v${{ needs.prepare.outputs.next_version }}"
           echo "标签: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.prepare.outputs.next_version }}"
           echo "注册表: https://pkg.go.dev/github.com/${{ github.repository }}@v${{ needs.prepare.outputs.next_version }}"
+          echo "代码报告: https://goreportcard.com/report/github.com/${{ github.repository }}"
