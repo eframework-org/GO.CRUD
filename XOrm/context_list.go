@@ -5,8 +5,11 @@
 package XOrm
 
 import (
+	"sync"
+
 	"github.com/eframework-org/GO.UTIL/XCollect"
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/petermattis/goid"
 )
 
 // List 获取数据模型的列表。model 参数为要查询的数据模型，必须实现 IModel 接口。
@@ -22,6 +25,7 @@ import (
 // 已被标记删除的数据将被过滤。返回的数据是原始数据的克隆，非条件列举可能导致数据不同步，
 // 建议避免在异步操作期间进行条件列举。
 func List[T IModel](model T, writableAndCond ...any) []T {
+	gid := goid.Get()
 	frets := make([]T, 0)
 	meta := getModelInfo(model)
 	if meta == nil {
@@ -39,25 +43,30 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 				XLog.Critical("XOrm.List: writableAndCond of %v type is error: %v", v, XLog.Caller(1, false))
 			}
 		}
-		if isSessionListed(model, true, false, cond) { // 会话内存读取
-			scache := getSessionCache(model)
+		if isSessionListed(gid, model, true, false, cond) { // 会话内存读取
+			scache := getSessionCache(gid, model)
 			if scache != nil {
-				scache.Range(func(key, value any) bool {
+				var chunks [][]T
+				concurrentRange(scache, func(index int, key, value any) bool {
 					sobj := value.(*sessionObject)
 					if sobj.clear || sobj.delete {
 						// 已经被标记删除，则不读取
 					} else if sobj.ptr.Matchs(cond) {
 						sobj.setWritable(writable)
-						frets = append(frets, sobj.ptr.(T))
+						chunks[index] = append(chunks[index], sobj.ptr.(T))
 					}
 					return true
-				})
+				}, func(worker int) { chunks = make([][]T, worker) })
+				for _, chunk := range chunks {
+					frets = append(frets, chunk...)
+				}
 			}
 		} else if isGlobalListed(model, meta, true, false, cond) || (meta.Cache && !meta.Persist) { // 全局内存读取（若仅支持缓存，则只在内存中查找）
 			gcache := getGlobalCache(model)
-			scache := getSessionCache(model)
+			scache := getSessionCache(gid, model)
 			if gcache != nil {
-				gcache.Range(func(key, value any) bool {
+				var chunks [][]T
+				concurrentRange(gcache, func(index int, key, value any) bool {
 					gobj := value.(*globalObject)
 					if gobj.delete {
 						// 已经被标记删除，则不读取
@@ -74,19 +83,22 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 							// 这里无需判断SClear和SDelete，因为数据和全局内存是同步的
 							ele = sobj.ptr
 						} else {
-							sobj = setSessionCache(ele, meta) // 监控内存
+							sobj = setSessionCache(gid, ele, meta) // 监控内存
 						}
 						sobj.setWritable(writable)
-						frets = append(frets, ele.(T))
+						chunks[index] = append(chunks[index], ele.(T))
 					}
 					return true
-				})
+				}, func(worker int) { chunks = make([][]T, worker) })
+				for _, chunk := range chunks {
+					frets = append(frets, chunk...)
+				}
 			}
 		} else { // 远端读取
 			globalWait("XOrm.List", model, meta)
 			model.List(&frets, cond)
 			gcache := getGlobalCache(model)
-			scache := getSessionCache(model)
+			scache := getSessionCache(gid, model)
 			valids := make([]string, 0)
 			invalids := make(map[int]struct{})
 			for i := range frets {
@@ -130,7 +142,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 					} else {
 						nobj := gobj.ptr.Clone() // 内存拷贝
 						frets[i] = nobj.(T)
-						sobj := setSessionCache(nobj, meta) // 监控内存
+						sobj := setSessionCache(gid, nobj, meta) // 监控内存
 						sobj.setWritable(writable)
 						XLog.Notice("XOrm.List: use gobj: %v", name)
 					}
@@ -138,7 +150,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 					if meta.Cache {
 						setGlobalCache(obj.Clone()) // 内存拷贝
 					}
-					sobj := setSessionCache(obj, meta) // 监控内存
+					sobj := setSessionCache(gid, obj, meta) // 监控内存
 					sobj.setWritable(writable)
 				}
 				if !removed {
@@ -161,40 +173,57 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 			// 若数据未被全量列举（非条件列举），则对该类型数据进行条件列举可能会导致数据不同步（远端读取，但数据写入/删除是异步的）
 			// 还是要尽量避免这样使用
 			if scache != nil { // 遍历会话内存
-				scache.Range(func(key, value any) bool {
+				var chunks [][]T
+				var chunkValids [][]string
+				concurrentRange(scache, func(index int, key, value any) bool {
+					skey := key.(string)
 					sobj := value.(*sessionObject)
 					if sobj.clear || sobj.delete {
-					} else if !XCollect.Contains(valids, key.(string)) {
+					} else if !XCollect.Contains(valids, skey) && !XCollect.Contains(chunkValids[index], skey) {
 						if sobj.ptr.Matchs(cond) {
-							valids = append(valids, key.(string)) // 在会话内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
-							frets = append(frets, sobj.ptr.(T))
-							XLog.Notice("XOrm.List: add sobj: %v", key.(string))
+							chunkValids[index] = append(chunkValids[index], skey) // 在会话内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
+							chunks[index] = append(chunks[index], sobj.ptr.(T))
+							XLog.Notice("XOrm.List: add sobj: %v", skey)
 						}
 					}
 					return true
+				}, func(worker int) {
+					chunks = make([][]T, worker)
+					chunkValids = make([][]string, worker)
 				})
+				for _, chunk := range chunks {
+					frets = append(frets, chunk...)
+				}
+				for _, chunkValid := range chunkValids {
+					valids = append(valids, chunkValid...)
+				}
 			}
 			if meta.Cache {
 				if gcache != nil { // 遍历全局内存
-					added := make(map[string]*globalObject)
-					gcache.Range(func(key, value any) bool {
+					added := new(sync.Map)
+					concurrentRange(gcache, func(index int, key, value any) bool {
+						gkey := key.(string)
 						gobj := value.(*globalObject)
 						if gobj.delete {
-						} else if !XCollect.Contains(valids, key.(string)) {
+						} else if !XCollect.Contains(valids, gkey) {
 							if gobj.ptr.Matchs(cond) {
-								added[key.(string)] = gobj
+								added.Store(gkey, gobj)
 							}
 						}
 						return true
 					})
-					for k, v := range added {
-						valids = append(valids, k)          // 在全局内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
-						nobj := v.ptr.Clone()               // 内存拷贝
-						sobj := setSessionCache(nobj, meta) // 监控内存
+
+					added.Range(func(key, value any) bool {
+						gkey := key.(string)
+						gobj := value.(*globalObject)
+						valids = append(valids, gkey)            // 在全局内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
+						nobj := gobj.ptr.Clone()                 // 内存拷贝
+						sobj := setSessionCache(gid, nobj, meta) // 监控内存
 						sobj.setWritable(writable)
 						frets = append(frets, nobj.(T))
-						XLog.Notice("XOrm.List: add gobj: %v", k)
-					}
+						XLog.Notice("XOrm.List: add gobj: %v", gkey)
+						return true
+					})
 				}
 			}
 		}

@@ -6,6 +6,8 @@ package XOrm
 
 import (
 	"testing"
+
+	"github.com/petermattis/goid"
 )
 
 // TestContextCount 测试计数操作
@@ -44,10 +46,11 @@ func TestContextCount(t *testing.T) {
 			name:      "CountSimpleInSession",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) //刷新列表
 				clearGlobalCache(t)
-				if !isSessionListed(model, false, false) {
+				if !isSessionListed(gid, model, false, false) {
 					t.Errorf("session expected listed")
 				}
 				count := Count(model)

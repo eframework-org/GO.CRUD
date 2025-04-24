@@ -5,7 +5,10 @@
 package XOrm
 
 import (
+	"sync/atomic"
+
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/petermattis/goid"
 )
 
 // Count 获取满足条件的数据模型数量。
@@ -21,38 +24,43 @@ import (
 // 计数会自动排除已标记删除的数据。对于仅缓存模式的模型，只在内存中计数。
 // 计数结果会受到数据同步状态的影响。
 func Count[T IModel](model T, cond ...*condition) int {
+	gid := goid.Get()
 	meta := getModelInfo(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Count: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return 0
 	}
 	ret := 0
-	if isSessionListed(model, false, false, cond...) { // 会话内存读取
-		scache := getSessionCache(model)
+	if isSessionListed(gid, model, false, false, cond...) { // 会话内存读取
+		var lret int64 = 0
+		scache := getSessionCache(gid, model)
 		if scache != nil {
-			scache.Range(func(key, value any) bool {
+			concurrentRange(scache, func(index int, key, value any) bool {
 				sobj := value.(*sessionObject)
 				if sobj.clear || sobj.delete {
 					// 已经被标记删除，则不读取
 				} else if sobj.ptr.Matchs(cond...) {
-					ret++
+					atomic.AddInt64(&lret, 1)
 				}
 				return true
 			})
 		}
+		ret = int(lret)
 	} else if isGlobalListed(model, meta, false, false, cond...) || (meta.Cache && !meta.Persist) { // 全局内存读取（若仅支持缓存，则只在内存中查找）
+		var lret int64 = 0
 		gcache := getGlobalCache(model)
 		if gcache != nil {
-			gcache.Range(func(key, value any) bool {
+			concurrentRange(gcache, func(index int, key, value any) bool {
 				gobj := value.(*globalObject)
 				if gobj.delete {
 					// 已经被标记删除，则不读取
 				} else if gobj.ptr.Matchs(cond...) {
-					ret++
+					atomic.AddInt64(&lret, 1)
 				}
 				return true
 			})
 		}
+		ret = int(lret)
 	} else { // 远端读取
 		ret = model.Count(cond...)
 	}

@@ -6,6 +6,8 @@ package XOrm
 
 import (
 	"testing"
+
+	"github.com/petermattis/goid"
 )
 
 // TestContextClear 测试清除操作
@@ -21,11 +23,12 @@ func TestContextClear(t *testing.T) {
 			modelArgs: []bool{true, true, true},
 			needReset: false,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 				clearGlobalCache(t)
 
-				if !isSessionListed(model, false, false) {
+				if !isSessionListed(gid, model, false, false) {
 					t.Error("session expected listed")
 				}
 
@@ -33,7 +36,7 @@ func TestContextClear(t *testing.T) {
 				Clear(model)
 
 				// 验证会话内存中的数据都被标记为删除
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					scache.Range(func(key, value any) bool {
 						sobj := value.(*sessionObject)
@@ -56,6 +59,7 @@ func TestContextClear(t *testing.T) {
 			modelArgs: []bool{true, true, true},
 			needReset: false,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 				clearGlobalCache(t)
@@ -65,7 +69,7 @@ func TestContextClear(t *testing.T) {
 
 				// 验证会话内存中的数据部分被标记为删除
 				deletedCount := 0
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					scache.Range(func(key, value any) bool {
 						sobj := value.(*sessionObject)
@@ -195,6 +199,7 @@ func TestContextClear(t *testing.T) {
 			modelArgs: []bool{false, true, true},
 			needReset: false,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 
@@ -202,7 +207,7 @@ func TestContextClear(t *testing.T) {
 				Clear(model)
 
 				// 验证会话内存中的清除标记
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					found := false
 					scache.Range(func(key, value any) bool {

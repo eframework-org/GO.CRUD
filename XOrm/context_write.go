@@ -6,6 +6,7 @@ package XOrm
 
 import (
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/petermattis/goid"
 )
 
 // Write 将数据模型写入到内存缓存中。model 参数为要写入的数据模型，必须实现 IModel 接口。
@@ -14,6 +15,7 @@ import (
 // 同时清除删除标记。接着写入会话内存，设置创建标记，并清除删除标记和清理标记。需要注意的是，
 // 写入操作不会立即持久化到远端数据源。
 func Write[T IModel](model T) {
+	gid := goid.Get()
 	meta := getModelInfo(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Write: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
@@ -24,7 +26,7 @@ func Write[T IModel](model T) {
 		ret := setGlobalCache(model.Clone())
 		ret.delete = false
 	}
-	ret := setSessionCache(model, meta)
+	ret := setSessionCache(gid, model, meta)
 	ret.create = true
 	ret.delete = false
 	ret.clear = false

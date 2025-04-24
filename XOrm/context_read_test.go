@@ -7,6 +7,8 @@ package XOrm
 import (
 	"fmt"
 	"testing"
+
+	"github.com/petermattis/goid"
 )
 
 // TestRead 测试读取操作
@@ -192,9 +194,10 @@ func TestReadPriority(t *testing.T) {
 
 	// 测试会话内存优先级
 	t.Run("ReadMemoryPriority", func(t *testing.T) {
+		gid := goid.Get()
 		List(model)
 
-		scache := getSessionCache(model)
+		scache := getSessionCache(gid, model)
 		if scache != nil {
 			scache.Range(func(key, value any) bool {
 				sobj := value.(*sessionObject)

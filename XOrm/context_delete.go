@@ -6,6 +6,7 @@ package XOrm
 
 import (
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/petermattis/goid"
 )
 
 // Delete 标记数据模型为删除状态。
@@ -17,6 +18,7 @@ import (
 //
 // 删除操作是软删除，不会立即从内存中移除数据。被标记删除的数据在读取时会被忽略。
 func Delete[T IModel](model T) {
+	gid := goid.Get()
 	meta := getModelInfo(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Delete: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
@@ -32,5 +34,5 @@ func Delete[T IModel](model T) {
 		}
 	}
 
-	setSessionCache(model, meta).delete = true
+	setSessionCache(gid, model, meta).delete = true
 }

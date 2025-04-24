@@ -7,6 +7,8 @@ package XOrm
 import (
 	"strings"
 	"testing"
+
+	"github.com/petermattis/goid"
 )
 
 // TestContextCache 测试缓存操作
@@ -67,19 +69,20 @@ func TestContextCache(t *testing.T) {
 			name:      "SessionMemoryCacheOperations",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				model.ID = 2
 				model.StringVal = "test_session"
 				meta := getModelInfo(model)
 
 				// 测试会话内存缓存
-				sobj := setSessionCache(model, meta)
+				sobj := setSessionCache(gid, model, meta)
 				if sobj == nil {
 					t.Error("Session object should not be nil after cache")
 				}
 
 				// 验证缓存的数据
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache == nil {
 					t.Error("Session memory should not be nil")
 				}
@@ -101,7 +104,7 @@ func TestContextCache(t *testing.T) {
 				}
 
 				// 测试重复缓存相同对象
-				sobj2 := setSessionCache(model, meta)
+				sobj2 := setSessionCache(gid, model, meta)
 				if sobj2 != sobj {
 					t.Error("Caching same object should return same session object")
 				}
@@ -110,7 +113,7 @@ func TestContextCache(t *testing.T) {
 				model2 := NewTestBaseModel()
 				model2.ID = 2
 				model2.StringVal = "test_session_2"
-				sobj3 := setSessionCache(model2, meta)
+				sobj3 := setSessionCache(gid, model2, meta)
 				if sobj3 != sobj {
 					t.Error("Caching object with same unique ID should update existing object")
 				}
@@ -123,11 +126,12 @@ func TestContextCache(t *testing.T) {
 			name:      "SessionObjectReadWriteFlags",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				model.ID = 3
 				meta := getModelInfo(model)
 
-				sobj := setSessionCache(model, meta)
+				sobj := setSessionCache(gid, model, meta)
 
 				// 测试默认状态
 				if sobj.setWritable() != 0 {
@@ -188,22 +192,23 @@ func TestContextCache(t *testing.T) {
 			name:      "SessionListedStatus",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 
 				// 测试初始状态
-				if isSessionListed(model, false, false) {
+				if isSessionListed(gid, model, false, false) {
 					t.Error("Initial listed status should be false")
 				}
 
 				// 测试标记为已列举
-				isSessionListed(model, true, false)
-				if !isSessionListed(model, false, false) {
+				isSessionListed(gid, model, true, false)
+				if !isSessionListed(gid, model, false, false) {
 					t.Error("Listed status should be true after marking")
 				}
 
 				// 测试重置状态
-				isSessionListed(model, false, true)
-				if isSessionListed(model, false, false) {
+				isSessionListed(gid, model, false, true)
+				if isSessionListed(gid, model, false, false) {
 					t.Error("Listed status should be false after reset")
 				}
 			},

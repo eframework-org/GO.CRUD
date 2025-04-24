@@ -6,6 +6,8 @@ package XOrm
 
 import (
 	"testing"
+
+	"github.com/petermattis/goid"
 )
 
 // TestContextDelete 测试删除操作
@@ -21,11 +23,12 @@ func TestContextDelete(t *testing.T) {
 			modelArgs: []bool{true, true, true},
 			needReset: false,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 				clearGlobalCache(t)
 
-				if !isSessionListed(model, false, false) {
+				if !isSessionListed(gid, model, false, false) {
 					t.Error("session expected listed")
 				}
 
@@ -34,7 +37,7 @@ func TestContextDelete(t *testing.T) {
 				Delete(model)
 
 				// 验证会话内存中的删除标记
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					sobj, exist := scache.Load(model.DataUnique())
 					if !exist {
@@ -101,6 +104,7 @@ func TestContextDelete(t *testing.T) {
 			modelArgs: []bool{true, true, true},
 			needReset: false,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 
@@ -110,7 +114,7 @@ func TestContextDelete(t *testing.T) {
 
 				// 验证全局内存和会话内存的同步
 				gcache := getGlobalCache(model)
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if gcache != nil && scache != nil {
 					gobj, gexist := gcache.Load(model.DataUnique())
 					sobj, sexist := scache.Load(model.DataUnique())
@@ -172,6 +176,7 @@ func TestContextDelete(t *testing.T) {
 			modelArgs: []bool{false, true, true},
 			needReset: true,
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 
@@ -180,7 +185,7 @@ func TestContextDelete(t *testing.T) {
 				Delete(model)
 
 				// 验证会话内存中的删除标记
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					sobj, exist := scache.Load(model.DataUnique())
 					if !exist {

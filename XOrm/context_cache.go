@@ -6,11 +6,13 @@ package XOrm
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
-	"github.com/petermattis/goid"
+	"github.com/eframework-org/GO.UTIL/XLoom"
 )
 
 var (
@@ -81,10 +83,11 @@ func getGlobalCache(model IModel) *sync.Map {
 }
 
 // getSessionCache 获取当前会话中指定模型的内存映射。
+// gid 为 goroutine 标识。
 // model 为模型实例。
 // 返回对象映射，如果不存在则返回 nil。
-func getSessionCache(model IModel) *sync.Map {
-	value, _ := sessionCacheMap.Load(goid.Get())
+func getSessionCache(gid int64, model IModel) *sync.Map {
+	value, _ := sessionCacheMap.Load(gid)
 	if value != nil {
 		value2, _ := value.(*sync.Map).Load(model.ModelUnique())
 		if value2 != nil {
@@ -128,18 +131,19 @@ func setGlobalCache(model IModel) *globalObject {
 }
 
 // setSessionCache 将模型实例保存到会话缓存中。
+// gid 为 goroutine 标识。
 // model 为要缓存的模型实例。
 // meta 为模型的元信息。
 // 返回会话对象实例。
 // 此操作会覆盖已存在的对象，除非该对象已被标记为删除。
 // 覆盖操作会记录错误日志。
 // 会保存原始模型的克隆副本用于比较。
-func setSessionCache(model IModel, meta *modelInfo) *sessionObject {
+func setSessionCache(gid int64, model IModel, meta *modelInfo) *sessionObject {
 	name := model.DataUnique()
-	tmap, _ := sessionCacheMap.Load(goid.Get()) // 对应线程
+	tmap, _ := sessionCacheMap.Load(gid) // 对应线程
 	if tmap == nil {
 		tmap = &sync.Map{}
-		sessionCacheMap.Store(goid.Get(), tmap)
+		sessionCacheMap.Store(gid, tmap)
 	}
 	omap, _ := tmap.(*sync.Map).Load(model.ModelUnique())
 	if omap == nil {
@@ -199,6 +203,7 @@ func isGlobalListed(model IModel, meta *modelInfo, mark bool, reset bool, cond .
 }
 
 // isSessionListed 检查或设置模型在当前会话中的列举状态。
+// gid 为 goroutine 标识。
 // model 为模型实例。
 // mark 指定是否标记为已列举。
 // reset 指定是否重置列举状态。
@@ -206,12 +211,12 @@ func isGlobalListed(model IModel, meta *modelInfo, mark bool, reset bool, cond .
 // 返回模型是否已被列举。
 // 当 mark 为 true 且没有查询条件时，会标记模型为已列举。
 // 会话列举状态与当前 goroutine 关联。
-func isSessionListed(model IModel, mark bool, reset bool, cond ...*condition) bool {
+func isSessionListed(gid int64, model IModel, mark bool, reset bool, cond ...*condition) bool {
 	var slist *sync.Map
-	tmp, exist := sessionListMap.Load(goid.Get())
+	tmp, exist := sessionListMap.Load(gid)
 	if !exist {
 		tmp = &sync.Map{}
-		sessionListMap.Store(goid.Get(), tmp)
+		sessionListMap.Store(gid, tmp)
 	}
 	slist = tmp.(*sync.Map)
 	local := false
@@ -227,6 +232,74 @@ func isSessionListed(model IModel, mark bool, reset bool, cond ...*condition) bo
 		}
 	}
 	return local
+}
+
+// concurrentRangeChunk 定义了并发遍历 sync.Map 时的最小键值对数量。
+const concurrentRangeChunk = 100
+
+// concurrentRange 并行遍历 sync.Map 中的所有键值对。
+// 它将所有的键收集到一个切片中，然后按指定的 worker 数量将键分块，每个工作 goroutine 处理其中一部分。
+// 如果回调函数返回 false，遍历会提前停止。
+// 为了保证遍历过程的线程安全，该函数使用原子操作控制是否中止遍历。
+//
+//	data 为待遍历的 sync.Map。
+//	process 为遍历时调用的回调函数，接受线程索引、键和值作为参数，如果回调函数返回 false，遍历会立即停止。
+//	worker 会在遍历开始前返回并发 goroutine 的数量。
+//	该函数没有返回值。它会通过并发执行来加速遍历操作，遍历结束后自动退出。
+func concurrentRange(data *sync.Map, process func(index int, key, value any) bool, worker ...func(int)) {
+	if data == nil || process == nil {
+		return
+	}
+
+	var keys []any
+	data.Range(func(key, value any) bool {
+		keys = append(keys, key)
+		return true
+	})
+	dataCount := len(keys)
+
+	var workerCount = runtime.NumCPU()
+	requiredCount := (dataCount + concurrentRangeChunk - 1) / concurrentRangeChunk
+	if requiredCount < workerCount {
+		workerCount = requiredCount
+	}
+	if len(worker) > 0 && worker[0] != nil {
+		worker[0](workerCount)
+	}
+
+	chunkSize := dataCount / workerCount
+	var wg sync.WaitGroup
+	var done int32
+
+	for i := range workerCount {
+		wg.Add(1)
+		XLoom.RunAsyncT1(func(workerID int) {
+			defer wg.Done()
+
+			// 每个 goroutine 处理一部分数据
+			startIndex := workerID * chunkSize
+			endIndex := (workerID + 1) * chunkSize
+			if workerID == workerCount-1 {
+				// 最后一个 goroutine 处理剩余的数据
+				endIndex = len(keys)
+			}
+
+			for j := startIndex; j < endIndex; j++ {
+				if atomic.LoadInt32(&done) == 1 {
+					return
+				}
+
+				key := keys[j]
+				value, _ := data.Load(key)
+
+				if !process(workerID, key, value) {
+					atomic.StoreInt32(&done, 1)
+					return
+				}
+			}
+		}, i)
+	}
+	wg.Wait()
 }
 
 // Dump 生成当前缓存状态的文本表示。

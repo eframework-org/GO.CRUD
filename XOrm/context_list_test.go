@@ -22,6 +22,7 @@ func TestContextList(t *testing.T) {
 			name:      "ListFromGlobalMemory",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 				clearSessionCache(t)
@@ -34,7 +35,7 @@ func TestContextList(t *testing.T) {
 				if len(results) != 5 {
 					t.Errorf("List() length = %v, want %v", len(results), 5)
 				}
-				if !isSessionListed(model, false, false) {
+				if !isSessionListed(gid, model, false, false) {
 					t.Error("session expected listed")
 				}
 				clearSessionCache(t) //需再次清除
@@ -46,7 +47,7 @@ func TestContextList(t *testing.T) {
 
 				results = List(model, true)
 				for _, r := range results {
-					if sobj, exists := getSessionCache(r).Load(r.DataUnique()); exists {
+					if sobj, exists := getSessionCache(gid, r).Load(r.DataUnique()); exists {
 						if sobj.(*sessionObject).writable != 2 {
 							t.Error("List() with writable flag should mark objects as writable")
 						}
@@ -58,10 +59,11 @@ func TestContextList(t *testing.T) {
 			name:      "ListFromSessionMemory",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 刷新列表
 				clearGlobalCache(t)
-				if !isSessionListed(model, false, false) {
+				if !isSessionListed(gid, model, false, false) {
 					t.Error("session expected listed")
 				}
 
@@ -78,7 +80,7 @@ func TestContextList(t *testing.T) {
 				}
 				clearGlobalCache(t)
 				// 测试带删除标记的列举
-				scache := getSessionCache(model)
+				scache := getSessionCache(gid, model)
 				if scache != nil {
 					scache.Range(func(key, value any) bool {
 						if sobj := value.(*sessionObject); sobj != nil {
@@ -131,6 +133,7 @@ func TestContextList(t *testing.T) {
 			name:      "ListWithMixedOperations",
 			modelArgs: []bool{true, true, true},
 			checkFunc: func(t *testing.T) {
+				gid := goid.Get()
 				model := NewTestBaseModel()
 				List(model) // 初始加载
 
@@ -139,7 +142,7 @@ func TestContextList(t *testing.T) {
 				if len(results) > 0 {
 					modifiedModel := results[0]
 					modifiedModel.StringVal = "modified"
-					setSessionCache(modifiedModel, getModelInfo(model))
+					setSessionCache(gid, modifiedModel, getModelInfo(model))
 				}
 
 				// 在全局内存中标记删除另一个对象
@@ -215,7 +218,7 @@ func clearSessionCache(t *testing.T) {
 	sessionCacheMap.Delete(gid) // release memory
 	sessionListMap.Delete(gid)  // release memory
 	var model = NewTestBaseModel()
-	if isSessionListed(model, false, false) {
+	if isSessionListed(gid, model, false, false) {
 		t.Error("session expected not listed")
 	}
 }

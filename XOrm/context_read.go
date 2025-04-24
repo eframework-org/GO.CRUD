@@ -5,7 +5,10 @@
 package XOrm
 
 import (
+	"sync/atomic"
+
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/petermattis/goid"
 )
 
 // Read 从数据源读取数据模型。model 参数为要读取的数据模型，必须实现 IModel 接口。
@@ -17,6 +20,7 @@ import (
 //
 // 函数返回读取到的数据模型，如果数据被标记为删除，模型的 IsValid 将被设置为 false。
 func Read[T IModel](model T, writableAndCond ...any) T {
+	gid := goid.Get()
 	meta := getModelInfo(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Read: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
@@ -36,7 +40,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 	}
 	if cond == nil { // 精确查找
 		isGet := false
-		scache := getSessionCache(model)
+		scache := getSessionCache(gid, model)
 		if scache != nil { // 会话内存读取
 			obj, _ := scache.Load(model.DataUnique())
 			if obj != nil {
@@ -61,8 +65,8 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 						// 已经被标记删除，则不读取
 						model.IsValid(false)
 					} else {
-						model = gobj.ptr.Clone().(any).(T)   // 内存拷贝
-						sobj := setSessionCache(model, meta) // 监控内存
+						model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
+						sobj := setSessionCache(gid, model, meta) // 监控内存
 						sobj.setWritable(writable)
 					}
 					isGet = true
@@ -76,37 +80,37 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 				if meta.Cache {
 					setGlobalCache(model.Clone()) // 保存至全局内存中
 				}
-				setSessionCache(model, meta) // 监控内存
+				setSessionCache(gid, model, meta) // 监控内存
 			}
 		}
 	} else { // 模糊查找
 		if meta.Cache && !meta.Persist { // 仅缓存，则先查询会话内存，而后查询全局内存
-			isGet := false
-			scache := getSessionCache(model)
+			var isGet int32
+			scache := getSessionCache(gid, model)
 			if scache != nil { // 会话内存读取
-				scache.Range(func(key, value any) bool {
+				concurrentRange(scache, func(index int, key, value any) bool {
 					sobj := value.(*sessionObject)
 					if sobj.clear || sobj.delete {
 						// 已经被标记删除，则不读取
 					} else if sobj.ptr.Matchs(cond) {
 						model = sobj.ptr.(any).(T)
 						sobj.setWritable(writable)
-						isGet = true
+						atomic.SwapInt32(&isGet, 1)
 						return false
 					}
 					return true
 				})
 			}
-			if !isGet {
+			if isGet == 0 {
 				gcache := getGlobalCache(model)
 				if gcache != nil { // 全局内存读取
-					gcache.Range(func(key, value any) bool {
+					concurrentRange(gcache, func(index int, key, value any) bool {
 						gobj := value.(*globalObject)
 						if gobj.delete {
 							// 已经被标记删除，则不读取
 						} else if gobj.ptr.Matchs(cond) {
-							model = gobj.ptr.Clone().(any).(T)   // 内存拷贝
-							sobj := setSessionCache(model, meta) // 监控内存
+							model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
+							sobj := setSessionCache(gid, model, meta) // 监控内存
 							sobj.setWritable(writable)
 							return false
 						}
@@ -115,10 +119,10 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 				}
 			}
 		} else {
-			if isSessionListed(model, false, false, cond) { // 会话内存被列举过
-				scache := getSessionCache(model)
+			if isSessionListed(gid, model, false, false, cond) { // 会话内存被列举过
+				scache := getSessionCache(gid, model)
 				if scache != nil { // 会话内存读取
-					scache.Range(func(key, value any) bool {
+					concurrentRange(scache, func(index int, key, value any) bool {
 						sobj := value.(*sessionObject)
 						if sobj.clear || sobj.delete {
 							// 已经被标记删除，则不读取
@@ -133,13 +137,13 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 			} else if isGlobalListed(model, meta, false, false, cond) { // 全局内存被列举过
 				gcache := getGlobalCache(model)
 				if gcache != nil { // 全局内存读取
-					gcache.Range(func(key, value any) bool {
+					concurrentRange(gcache, func(index int, key, value any) bool {
 						gobj := value.(*globalObject)
 						if gobj.delete {
 							// 已经被标记删除，则不读取
 						} else if gobj.ptr.Matchs(cond) {
-							model = gobj.ptr.Clone().(any).(T)   // 内存拷贝
-							sobj := setSessionCache(model, meta) // 监控内存
+							model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
+							sobj := setSessionCache(gid, model, meta) // 监控内存
 							sobj.setWritable(writable)
 							return false
 						}
@@ -151,7 +155,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 				if model.Read(cond) {
 					// 判断内存中是否有
 					isSCache := false
-					scache := getSessionCache(model)
+					scache := getSessionCache(gid, model)
 					if scache != nil { // 会话内存读取
 						obj, _ := scache.Load(model.DataUnique())
 						if obj != nil {
@@ -188,8 +192,8 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 									XLog.Notice("XOrm.Read: del gobj: %v", model.DataUnique())
 									return model
 								} else if !isSCache { // 未在会话内存中，但在全局内存中，替换之
-									model = gobj.ptr.Clone().(any).(T)   // 内存拷贝
-									sobj := setSessionCache(model, meta) // 监控内存
+									model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
+									sobj := setSessionCache(gid, model, meta) // 监控内存
 									sobj.setWritable(writable)
 									XLog.Notice("XOrm.Read: use gobj: %v", model.DataUnique())
 								}
@@ -198,7 +202,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 							}
 						}
 					}
-					setSessionCache(model, meta) // 监控内存
+					setSessionCache(gid, model, meta) // 监控内存
 				}
 			}
 		}
