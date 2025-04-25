@@ -163,7 +163,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 							if sobj.clear || sobj.delete {
 								// 已经被标记删除，则不读取
 								model.IsValid(false) // 设置为不合法，直接返回
-								XLog.Notice("XOrm.Read: del sobj: %v", model.DataUnique())
+								XLog.Notice("XOrm.Read: session object is marked as deleted: %v", model.DataUnique())
 								return model
 							} else {
 								if model.Matchs(cond) { // 执行一遍条件
@@ -171,10 +171,10 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 									model = sobj.ptr.(any).(T) // 使用会话内存替换
 									sobj.setWritable(writable)
 									isSCache = true
-									XLog.Notice("XOrm.Read: use sobj: %v", model.DataUnique())
+									XLog.Notice("XOrm.Read: using session object: %v", model.DataUnique())
 								} else {
 									// 注意此处可能导致数据覆盖：从远端模糊查找返回的对象已在内存中，但内存对象并不满足筛选条件，若该内存对象有修改，则会导致这些修改被覆盖（无效）
-									XLog.Error("XOrm.Read: remote-obj overwrited smem-obj because of mismatched condition, the change of smem-obj will be discarded, name = %v", model.DataUnique())
+									XLog.Error("XOrm.Read: remote object has overwritten session object because of mismatched condition, the change of session object will be discarded, name = %v", model.DataUnique())
 								}
 							}
 						}
@@ -189,13 +189,13 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 								if gobj.delete {
 									// 已经被标记删除，则不读取
 									model.IsValid(false) // 设置为不合法，直接返回
-									XLog.Notice("XOrm.Read: del gobj: %v", model.DataUnique())
+									XLog.Notice("XOrm.Read: global object is marked as deleted: %v", model.DataUnique())
 									return model
 								} else if !isSCache { // 未在会话内存中，但在全局内存中，替换之
 									model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
 									sobj := setSessionCache(gid, model, meta) // 监控内存
 									sobj.setWritable(writable)
-									XLog.Notice("XOrm.Read: use gobj: %v", model.DataUnique())
+									XLog.Notice("XOrm.Read: using global object: %v", model.DataUnique())
 								}
 							} else {
 								setGlobalCache(model.Clone()) // 保存至全局内存

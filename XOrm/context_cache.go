@@ -27,12 +27,27 @@ var (
 
 	// sessionListMap 存储会话列举标记，键为 goroutine ID，值为模型列举状态。
 	sessionListMap sync.Map
+
+	// globalObjectPool 用于存储 globalObject 对象的对象池。
+	globalObjectPool = sync.Pool{New: func() any { return new(globalObject) }}
+
+	// sessionObjectPool 用于存储 sessionObject 对象的对象池。
+	sessionObjectPool sync.Pool = sync.Pool{New: func() any { return new(sessionObject) }}
+
+	// syncMapPool 用于存储 sync.Map 对象的对象池。
+	syncMapPool sync.Pool = sync.Pool{New: func() any { return new(sync.Map) }}
 )
 
 // globalObject 定义了全局缓存中的对象结构。
 type globalObject struct {
 	ptr    IModel // 模型实例指针
 	delete bool   // 是否已标记为删除
+}
+
+// reset 重置对象状态。
+func (gobj *globalObject) reset() {
+	gobj.ptr = nil
+	gobj.delete = false
 }
 
 // sessionObject 定义了会话缓存中的对象结构。
@@ -45,6 +60,18 @@ type sessionObject struct {
 	cond     *condition // 查询条件
 	writable int        // 读写状态（0：未标记，1：只读，2：读写）
 	model    *modelInfo // 模型元信息
+}
+
+// reset 重置对象状态。
+func (sobj *sessionObject) reset() {
+	sobj.raw = nil
+	sobj.ptr = nil
+	sobj.create = false
+	sobj.delete = false
+	sobj.clear = false
+	sobj.cond = nil
+	sobj.writable = 0
+	sobj.model = nil
 }
 
 // setWritable 设置或获取对象的读写状态。
@@ -104,8 +131,8 @@ func getSessionCache(gid int64, model IModel) *sync.Map {
 // 覆盖操作会记录错误日志。
 func setGlobalCache(model IModel) *globalObject {
 	name := model.DataUnique()
-	omap, _ := globalCacheMap.LoadOrStore(model.ModelUnique(), &sync.Map{})
-	value, loaded := omap.(*sync.Map).LoadOrStore(name, &globalObject{})
+	omap, _ := globalCacheMap.LoadOrStore(model.ModelUnique(), syncMapPool.Get())
+	value, loaded := omap.(*sync.Map).LoadOrStore(name, globalObjectPool.Get())
 	gobj := value.(*globalObject)
 	if !loaded {
 		gobj.ptr = model
@@ -130,9 +157,9 @@ func setGlobalCache(model IModel) *globalObject {
 // 会保存原始模型的克隆副本用于比较。
 func setSessionCache(gid int64, model IModel, meta *modelInfo) *sessionObject {
 	name := model.DataUnique()
-	tmap, _ := sessionCacheMap.LoadOrStore(gid, &sync.Map{}) // 对应线程
-	omap, _ := tmap.(*sync.Map).LoadOrStore(model.ModelUnique(), &sync.Map{})
-	value, loaded := omap.(*sync.Map).LoadOrStore(name, &sessionObject{})
+	tmap, _ := sessionCacheMap.LoadOrStore(gid, syncMapPool.Get()) // 对应线程
+	omap, _ := tmap.(*sync.Map).LoadOrStore(model.ModelUnique(), syncMapPool.Get())
+	value, loaded := omap.(*sync.Map).LoadOrStore(name, sessionObjectPool.Get())
 	sobj := value.(*sessionObject)
 	if !loaded {
 		sobj.ptr = model
@@ -193,7 +220,7 @@ func isSessionListed(gid int64, model IModel, mark bool, reset bool, cond ...*co
 	var slist *sync.Map
 	tmp, loaded := sessionListMap.Load(gid)
 	if !loaded {
-		tmp = &sync.Map{}
+		tmp = syncMapPool.Get()
 		sessionListMap.Store(gid, tmp)
 	}
 	slist = tmp.(*sync.Map)
@@ -259,7 +286,7 @@ func concurrentRange(data *sync.Map, process func(index int, key, value any) boo
 			endIndex := (workerID + 1) * chunkSize
 			if workerID == workerCount-1 {
 				// 最后一个 goroutine 处理剩余的数据
-				endIndex = len(keys)
+				endIndex = dataCount
 			}
 
 			for j := startIndex; j < endIndex; j++ {

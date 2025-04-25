@@ -248,7 +248,7 @@ func handleCommitObject(cobj *commitObject) {
 			obj.Delete()
 			action = "Delete"
 		} else {
-			// 删除 && 清理 则表示该对象会在清理逻辑中被删除，无需重复delete
+			// 删除 && 清理 则表示该对象会在清理逻辑中被删除，无需重复 delete
 		}
 
 		if cobj.meta.Cache {
@@ -262,6 +262,8 @@ func handleCommitObject(cobj *commitObject) {
 							action = "Delete"
 						}
 						gcache.Delete(k) // 同步被删除的数据至全局内存
+						ggobj.reset()
+						globalObjectPool.Put(ggobj)
 					} else {
 						// 因延迟写入，有可能该数据又被标记为写入（被新数据覆盖）
 					}

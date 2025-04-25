@@ -5,6 +5,8 @@
 package XOrm
 
 import (
+	"sync"
+
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/petermattis/goid"
 )
@@ -27,17 +29,18 @@ func Clear[T IModel](model T, cond ...*condition) {
 		return
 	}
 
-	marked := make(map[string]int)
+	marked := syncMapPool.Get().(*sync.Map)
 	scache := getSessionCache(gid, model)
 	if scache != nil { // 标记会话内存清除
 		concurrentRange(scache, func(index int, key, value any) bool {
 			if value.(*sessionObject).ptr.Matchs(cond...) {
 				value.(*sessionObject).delete = true
 				value.(*sessionObject).clear = true
-				marked[key.(string)] = 1
+				marked.Store(key, 1)
 			}
 			return true
 		})
+		isSessionListed(gid, model, false, true, cond...) // 清除会话列举状态
 	}
 
 	if meta.Cache { // 标记全局内存清除
@@ -46,15 +49,19 @@ func Clear[T IModel](model T, cond ...*condition) {
 			concurrentRange(gcache, func(index int, key, value any) bool {
 				if value.(*globalObject).ptr.Matchs(cond...) {
 					value.(*globalObject).delete = true
-					if _, exist := marked[key.(string)]; !exist {
+					if _, loaded := marked.Load(key); !loaded {
 						nobj := value.(*globalObject).ptr.Clone()
-						ret := setSessionCache(gid, nobj, meta) // 监控内存
+						ret := setSessionCache(gid, nobj, meta) // 监控会话内存
 						ret.delete = true
 						ret.clear = true
 					}
 				}
 				return true
 			})
+			isGlobalListed(model, meta, false, true, cond...) // 清除全局列举状态
 		}
 	}
+
+	marked.Clear()
+	syncMapPool.Put(marked)
 }
