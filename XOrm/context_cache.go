@@ -83,7 +83,7 @@ func getGlobalCache(model IModel) *sync.Map {
 }
 
 // getSessionCache 获取当前会话中指定模型的内存映射。
-// gid 为 goroutine 标识。
+// gid 为 goroutine ID。
 // model 为模型实例。
 // 返回对象映射，如果不存在则返回 nil。
 func getSessionCache(gid int64, model IModel) *sync.Map {
@@ -104,34 +104,24 @@ func getSessionCache(gid int64, model IModel) *sync.Map {
 // 覆盖操作会记录错误日志。
 func setGlobalCache(model IModel) *globalObject {
 	name := model.DataUnique()
-	omap, _ := globalCacheMap.Load(model.ModelUnique())
-	if omap == nil {
-		omap = &sync.Map{}
-		globalCacheMap.Store(model.ModelUnique(), omap)
-	}
-	oomap := omap.(*sync.Map)
-	value, _ := oomap.Load(name)
-	var gobj *globalObject
-	if value != nil {
-		gobj = value.(*globalObject)
-	}
-	if gobj == nil {
-		gobj = new(globalObject)
-		oomap.Store(name, gobj)
+	omap, _ := globalCacheMap.LoadOrStore(model.ModelUnique(), &sync.Map{})
+	value, loaded := omap.(*sync.Map).LoadOrStore(name, &globalObject{})
+	gobj := value.(*globalObject)
+	if !loaded {
 		gobj.ptr = model
 	} else if gobj.ptr != model {
 		gobj.ptr = model
 		if gobj.delete {
 			// 若是被标记为删除的数据，则不算覆盖
 		} else {
-			XLog.Error("XOrm.globalCache: %v has been overwrited: %v", name, XLog.Caller(1, false))
+			XLog.Error("XOrm.setGlobalCache: %v has been overwritten: %v", name, XLog.Caller(1, false))
 		}
 	}
 	return gobj
 }
 
 // setSessionCache 将模型实例保存到会话缓存中。
-// gid 为 goroutine 标识。
+// gid 为 goroutine ID。
 // model 为要缓存的模型实例。
 // meta 为模型的元信息。
 // 返回会话对象实例。
@@ -140,25 +130,11 @@ func setGlobalCache(model IModel) *globalObject {
 // 会保存原始模型的克隆副本用于比较。
 func setSessionCache(gid int64, model IModel, meta *modelInfo) *sessionObject {
 	name := model.DataUnique()
-	tmap, _ := sessionCacheMap.Load(gid) // 对应线程
-	if tmap == nil {
-		tmap = &sync.Map{}
-		sessionCacheMap.Store(gid, tmap)
-	}
-	omap, _ := tmap.(*sync.Map).Load(model.ModelUnique())
-	if omap == nil {
-		omap = &sync.Map{}
-		tmap.(*sync.Map).Store(model.ModelUnique(), omap)
-	}
-	oomap := omap.(*sync.Map)
-	value, _ := oomap.Load(name)
-	var sobj *sessionObject
-	if value != nil {
-		sobj = value.(*sessionObject)
-	}
-	if sobj == nil {
-		sobj = new(sessionObject)
-		oomap.Store(name, sobj)
+	tmap, _ := sessionCacheMap.LoadOrStore(gid, &sync.Map{}) // 对应线程
+	omap, _ := tmap.(*sync.Map).LoadOrStore(model.ModelUnique(), &sync.Map{})
+	value, loaded := omap.(*sync.Map).LoadOrStore(name, &sessionObject{})
+	sobj := value.(*sessionObject)
+	if !loaded {
 		sobj.ptr = model
 		sobj.raw = model.Clone()
 	} else if sobj.ptr != model {
@@ -167,7 +143,7 @@ func setSessionCache(gid int64, model IModel, meta *modelInfo) *sessionObject {
 		if sobj.delete {
 			// 若是被标记为删除的数据，则不算覆盖
 		} else {
-			XLog.Error("XOrm.sessionCache: %v has been overwrited: %v", name, XLog.Caller(1, false))
+			XLog.Error("XOrm.setSessionCache: %v has been overwritten: %v", name, XLog.Caller(1, false))
 		}
 	}
 	sobj.model = meta
@@ -187,9 +163,10 @@ func isGlobalListed(model IModel, meta *modelInfo, mark bool, reset bool, cond .
 	if !meta.Cache {
 		return false
 	}
+	// ISSUE：这里对 sync.Map 的操作不是原子性的，高并发环境是否会导致标记信息异常？
 	local := false
-	status, exist := globalListMap.Load(model.ModelUnique())
-	if exist {
+	status, loaded := globalListMap.Load(model.ModelUnique())
+	if loaded {
 		local = status.(bool)
 		if reset {
 			globalListMap.Delete(model.ModelUnique())
@@ -203,7 +180,7 @@ func isGlobalListed(model IModel, meta *modelInfo, mark bool, reset bool, cond .
 }
 
 // isSessionListed 检查或设置模型在当前会话中的列举状态。
-// gid 为 goroutine 标识。
+// gid 为 goroutine ID。
 // model 为模型实例。
 // mark 指定是否标记为已列举。
 // reset 指定是否重置列举状态。
@@ -212,16 +189,17 @@ func isGlobalListed(model IModel, meta *modelInfo, mark bool, reset bool, cond .
 // 当 mark 为 true 且没有查询条件时，会标记模型为已列举。
 // 会话列举状态与当前 goroutine 关联。
 func isSessionListed(gid int64, model IModel, mark bool, reset bool, cond ...*condition) bool {
+	// ISSUE：这里对 sync.Map 的操作不是原子性的，高并发环境是否会导致标记信息异常？
 	var slist *sync.Map
-	tmp, exist := sessionListMap.Load(gid)
-	if !exist {
+	tmp, loaded := sessionListMap.Load(gid)
+	if !loaded {
 		tmp = &sync.Map{}
 		sessionListMap.Store(gid, tmp)
 	}
 	slist = tmp.(*sync.Map)
 	local := false
-	status, exist := slist.Load(model.ModelUnique())
-	if exist {
+	status, loaded := slist.Load(model.ModelUnique())
+	if loaded {
 		local = status.(bool)
 		if reset {
 			slist.Delete(model.ModelUnique())
