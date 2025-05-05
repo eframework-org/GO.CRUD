@@ -159,7 +159,7 @@ func TestContextCommit(t *testing.T) {
 
 					datas := make([]*TestBaseModel, 0)
 					model.List(&datas, Cond("id >= {0} && id <= {1}", i*100+1, i*100+100)) // 重新读取数据
-					assert.Equal(t, 0, len(datas), "清理操作后的对象数量应该为 0")
+					assert.Equal(t, 0, len(datas), "清除作后的对象数量应该为 0")
 				})
 
 				// 测试前后置处理器回调

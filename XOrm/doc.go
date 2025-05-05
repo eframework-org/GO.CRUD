@@ -7,9 +7,9 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机
 
 功能特性
 
-  - 多源配置：通过解析资源首选项中的配置自动初始化数据库连接
+  - 多源配置：通过解析首选项中的配置自动初始化数据库连接
   - 数据模型：提供了面向对象的模型设计及常用的数据操作
-  - 上下文操作：基于上下文的缓存机制，支持事务和并发控制
+  - 事务操作：基于上下文的缓存机制，支持事务和并发控制
 
 使用手册
 
@@ -246,7 +246,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机
 4. 条件会被缓存以提高性能，相同的表达式只会解析一次
 5. 支持所有 Beego ORM 的条件操作符
 
-3. 上下文操作
+3. 事务操作
 
 基于上下文的缓存机制，支持事务和并发控制。
 
@@ -254,50 +254,48 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机
 
 所有数据操作都需要在会话监听的上下文中进行，以确保缓存策略和事务控制的正确性：
 
-	// 开启会话监听，获取会话ID
+	// 开始 CRUD 监控。
 	sid := XOrm.Watch()
-	defer XOrm.Defer() // 结束会话时，将提交缓存队列并清理会话内存
+	// 结束 CRUD 监控。
+	defer XOrm.Defer()
 
-	// 写入操作：写入数据到会话缓存和全局缓存
+	// 写入操作：写入数据到会话缓存和全局缓存。
 	user := NewUser()
 	user.Name = "test"
 	user.Age = 18
-	XOrm.Write(user) // 设置 delete=false，create=true
+	XOrm.Write(user)
 
-	// 读取操作：按优先级依次从会话缓存、全局缓存、远端数据库读取
+	// 读取操作：按优先级依次从会话缓存、全局缓存、远端数据库读取。
 	user := NewUser()
 	user.ID = 1
-	if XOrm.Read(user) { // 精确查找，检查缓存标记
-	    fmt.Printf("User: %v\n", user.Name)
+	if XOrm.Read(user) { // 精确查找，检查缓存标记。
+		fmt.Printf("User: %v\n", user.Name)
 	}
 
-	// 条件读取：支持模糊查找和条件匹配
+	// 条件读取：支持模糊查找和条件匹配。
 	cond := XOrm.Cond("age > {0}", 18)
-	if XOrm.Read(user, cond) { // 模糊查找，可能触发远端读取
-	    fmt.Printf("User: %v\n", user.Name)
+	if XOrm.Read(user, cond) { // 模糊查找，可能触发远端读取。
+		fmt.Printf("User: %v\n", user.Name)
 	}
 
-	// 删除操作：标记删除状态到缓存
-	XOrm.Delete(user) // 设置 delete=true
+	// 删除操作：标记删除状态。
+	XOrm.Delete(user) // 通过事务缓冲至提交队列中删除。
 
-	// 清理操作：批量标记删除状态
+	// 清除操作：标记清除状态
 	cond = XOrm.Cond("age < {0}", 18)
-	XOrm.Clear(user, cond) // 设置 delete=true, clear=true
+	XOrm.Clear(user, cond) // 通过事务缓冲至提交队列中清除。
 
-	// 列举操作：从缓存和远端组合数据
+	// 列举操作：从缓存和远端组合数据。
 	var users []*User
 	cond = XOrm.Cond("age > {0} && name like {1}", 18, "%test%")
-	XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数据
-
-	// 统计操作：直接访问数据源
-	count := XOrm.Count(NewUser(), cond)
+	XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数据。
 
 注意：
 1. 所有操作必须在 Watch() 和 Defer() 之间进行
 2. 写入操作会同时更新会话缓存和全局缓存
 3. 读取操作遵循缓存优先级：会话缓存 > 全局缓存 > 远端数据
-4. 删除和清理操作仅做标记，实际删除在会话提交时执行
-5. 列举和统计等批量操作可能会同时访问缓存和远端数据
+4. 删除和清除操作仅做标记，实际删除在会话提交时执行
+5. 列举操作可能会同时访问缓存和远端数据
 
 更多信息请参考模块文档。
 */

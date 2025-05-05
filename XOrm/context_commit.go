@@ -211,7 +211,7 @@ func (cb *commitBatch) push() {
 	waitTime := XTime.GetMicrosecond() - cb.time
 	nowTime := XTime.GetMicrosecond()
 
-	// 优先处理清理操作，尽早释放全局锁，提高效率
+	// 优先处理清除操作，尽早释放全局锁，提高效率
 	for _, cobj := range cb.objects {
 		if cobj.clear != nil {
 			cb.handle(cobj)
