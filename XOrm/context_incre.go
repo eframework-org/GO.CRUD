@@ -16,11 +16,12 @@ import (
 // columnAndDelta 为可变参数，支持多种组合：无参数时自增主键且增量为 1；一个参数时，若为字符串则
 // 指定列名且增量为 1，若为整数则使用主键并指定增量；两个参数时，第一个为列名（字符串），第二个为增量（整数）。
 //
-// 函数首先获取或创建模型的最大值缓存，然后解析参数确定目标列名和增量值。如果未指定列名，会尝试使用主键列，
-// 若无主键则报错。获取当前最大值时优先使用缓存的值，如果缓存不存在，则从数据源获取，最后计算并缓存新值。
+// 函数首先获取或创建模型的最大值缓存，然后解析参数确定目标列名和增量值。如果未指定列名，会尝试使用主键列，若无主键则报错。
+// 获取当前最大值时优先使用缓存的值，如果缓存不存在，则从远端数据获取，最后计算并缓存新值。
+// 函数返回自增后的新值，如果列名为空，则返回 0。
 //
-// 函数返回自增后的新值，如果列名为空，则返回 0。目标列必须是整数类型，建议在事务中使用以确保一致性。
 // 需要注意的是，缓存的最大值在程序重启后会重置。
+// 该函数是线程安全的，可以确保单实例内的数据唯一性。
 func Incre(model IModel, columnAndDelta ...any) int {
 	cacheDumpWait.Wait()
 
@@ -36,11 +37,11 @@ func Incre(model IModel, columnAndDelta ...any) int {
 		return -1
 	}
 	if !ctx.writable {
-		XLog.Error("XOrm.Incre: context was not writable: %v", XLog.Caller(1, false))
+		XLog.Error("XOrm.Incre: context was not writable.")
 		return -1
 	}
 	if !meta.writable {
-		XLog.Error("XOrm.Incre: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		XLog.Error("XOrm.Incre: model of %v was not writable.", model.ModelUnique())
 		return -1
 	}
 

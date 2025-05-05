@@ -11,16 +11,17 @@ import (
 	"github.com/petermattis/goid"
 )
 
-// Clear 根据条件批量标记数据模型为清理状态。
-// model 为要清理的数据模型，必须实现 IModel 接口。
-// cond 为可选的查询条件列表，用于匹配要清理的数据。
+// Clear 根据条件批量标记数据模型为清除状态。
+// model 为要清除的数据模型，必须实现 IModel 接口。
+// cond 为可选的查询条件列表，用于匹配要清除的数据。
 //
-// 清理操作首先验证模型是否已注册，然后创建标记映射用于跟踪已处理的对象。
-// 在会话内存清理阶段，遍历会话内存中的对象，对匹配条件的对象设置删除标记和清理标记，并记录到标记映射中。
-// 如果启用了缓存，在全局内存清理阶段，遍历全局内存中的对象，对匹配条件的对象设置删除标记。
-// 对于未在会话内存中处理过的对象，会克隆到会话内存并设置相应的删除和清理标记。
+// 清除操作首先验证模型是否已注册，然后创建标记映射用于跟踪已处理的对象。
+// 在会话内存清除阶段，遍历会话内存中的对象，对匹配条件的对象设置删除标记，并记录到标记映射中。
+// 如果启用了缓存，在全局内存清除阶段，遍历全局内存中的对象，对匹配条件的对象设置删除标记。
+// 对于未在会话内存中处理过的对象，会克隆到会话内存并设置相应的删除标记。
 //
-// 清理操作是软删除，不会立即从内存中移除数据。被标记清理的数据在读取时会被忽略。
+// 需要注意的是，清除操作是软删除，不会立即从内存中移除数据，被标记清除的数据在读取时会被忽略。
+// 该函数是线程不安全的，操作相同的数据模型时，需要控制并发或使用适当的同步方式（如：Mutex）以确保操作的正确性。
 func Clear[T IModel](model T, cond ...*Condition) {
 	cacheDumpWait.Wait()
 
@@ -36,11 +37,11 @@ func Clear[T IModel](model T, cond ...*Condition) {
 		return
 	}
 	if !ctx.writable {
-		XLog.Error("XOrm.Clear: context was not writable: %v", XLog.Caller(1, false))
+		XLog.Error("XOrm.Clear: context was not writable.")
 		return
 	}
 	if !meta.writable {
-		XLog.Error("XOrm.Clear: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		XLog.Error("XOrm.Clear: model of %v was not writable.", model.ModelUnique())
 		return
 	}
 

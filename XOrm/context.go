@@ -14,21 +14,20 @@ import (
 )
 
 var (
-	// contextID 是上下文 ID 的原子计数器
-	// 用于生成唯一的会话标识
+	// contextID 是上下文 ID 的原子计数器，用于生成唯一的会话标识。
 	contextID int64
 
-	// 存储上下文映射，键为 goroutine ID，值为 context 实例
+	// contextMap 存储了上下文映射，键为 goroutine ID，值为 context 实例。
 	contextMap sync.Map
 
-	// 上下文对象池，用于复用 context 实例
+	// contextPool 是上下文对象池，用于复用 context 实例。
 	contextPool = sync.Pool{New: func() any { return new(context) }}
 )
 
 // context 定义了数据库操作的上下文信息，用于跟踪和管理数据库操作的生命周期。
 type context struct {
 	time     int  // 操作开始时间（微秒）
-	writable bool // 是否为读写操作
+	writable bool // 是否读写操作
 }
 
 // reset 重置上下文状态，将时间设为 0，读写标志设为 false。
@@ -53,16 +52,15 @@ func getContext(gid ...int64) *context {
 	return ctx
 }
 
-// Watch 开始 CRUD 操作监控。接受可选的读写模式标志 writable，默认为 true（读写模式），
-// 设为 false 则为只读模式。函数获取当前 goroutine ID，生成新的会话 ID，从对象池获取
-// 上下文实例，并初始化上下文（记录开始时间和设置读写模式）。最后将上下文存储到全局映射，
+// Watch 开始 CRUD 操作监控。
+// writable 是可选的，默认为 true（读写模式），设置为 false 则为只读模式。
+// 函数获取当前 goroutine ID，生成新的会话 ID，从对象池获取上下文实例并初始化（记录开始时间和设置读写模式）。
 // 并返回新分配的会话 ID。
 //
 // 使用示例：
 //
-//	sid := Watch()        // 开始读写监控
-//	sid := Watch(false)   // 开始只读监控
-//	defer Defer()         // 结束监控
+//	sid := Watch()        // 开始 CRUD 监控。
+//	defer Defer()         // 结束 CRUD 监控。
 func Watch(writable ...bool) int {
 	cacheDumpWait.Wait()
 
@@ -80,12 +78,13 @@ func Watch(writable ...bool) int {
 	return sid
 }
 
-// Defer 结束 CRUD 操作监控。函数获取当前 goroutine ID 并检索对应的上下文实例。
-// 如果是读写操作，会创建新的管道批次，遍历会话内存中的对象（处理新建、删除和修改的数据），
-// 同步数据到全局内存，并将变更放入管道进行异步处理。
-// 最后清理资源，记录性能指标（总耗时、管道耗时、逻辑耗时），删除上下文映射，重置并回收上下文实例。
+// Defer 结束 CRUD 操作监控。
+// 函数获取当前 goroutine ID 并检索对应的上下文实例。
+// 如果是读写操作，会自动对比 CRUD 前后的数据变更（新建、删除和修改等）。
+// 然后对变更进行合批并路由到（基于 goroutine ID）指定的队列中进行异步提交。
+// 对于只读操作，仅清理会话映射，不进行数据同步。
 //
-// 此函数应通过 defer 调用，确保每个 Watch 都有对应的 Defer。读写操作会触发数据同步。
+// 此函数应通过 defer 调用，确保每个 Watch 都有对应的 Defer。
 func Defer() {
 	cacheDumpWait.Wait()
 
@@ -179,7 +178,7 @@ func Defer() {
 								if sobj.create { // 新的数据
 									sobj.ptr.OnEncode() // encode for writing object
 								} else if !sobj.ptr.IsValid() { // 标记为删除或无效的数据
-								} else if sobj.writable() == 1 { // 只读数据，不对比，不写入
+								} else if sobj.isWritable() == 1 { // 只读数据，不对比，不写入
 									return true
 								} else { // 需要对比的数据
 									sobj.ptr.OnEncode() // encode for comparing and writing object

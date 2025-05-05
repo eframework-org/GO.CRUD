@@ -21,7 +21,10 @@ import (
 )
 
 const (
+	// commitQueueCountPrefs 定义了提交队列的数量的偏好设置键。
 	commitQueueCountPrefs = "Orm/Commit/Queue"
+
+	// commitBatchCountPrefs 定义了单个队列的最大容量的偏好设置键。
 	commitBatchCountPrefs = "Orm/Commit/Batch"
 )
 
@@ -32,14 +35,25 @@ var (
 	// commitBatchCount 定义了单个队列的最大容量，当超过此容量时，新的批次将被丢弃。
 	commitBatchCount int = 100000
 
+	// commitQueues 定义了提交队列的切片，用于缓冲待处理的批次数据。
 	commitQueues []chan *commitBatch
 
-	commitSetupSig  []chan os.Signal
-	commitFlushWait []chan *sync.WaitGroup // 用于管理提交处理器的刷新和退出
-	commitCloseWait sync.WaitGroup         // 等待所有提交处理器完成
-	commitFlushSig  int32                  // 提交批次是否已刷新的标志
-	commitCloseSig  int32                  // 提交批次是否已关闭的标志
+	// commitSetupSig 定义了提交队列的信号通道，用于接收退出信号。
+	commitSetupSig []chan os.Signal
 
+	// commitFlushWait 定义了提交队列的等待通道，用于等待批次处理完成。
+	commitFlushWait []chan *sync.WaitGroup
+
+	// commitCloseWait 定义了提交队列的关闭通道，用于等待所有队列关闭完成。
+	commitCloseWait sync.WaitGroup
+
+	// commitFlushSig 定义了提交批次是否已刷新的标志，用于控制批次的状态。
+	commitFlushSig int32
+
+	// commitCloseSig 定义了提交队列是否已关闭的标志，用于控制队列的状态。
+	commitCloseSig int32
+
+	// commitBatchPool 定义了批次对象的对象池，用于重用已创建的批次对象。
 	commitBatchPool sync.Pool = sync.Pool{
 		New: func() any {
 			obj := new(commitBatch)
@@ -51,6 +65,8 @@ var (
 
 func init() { setupCommit(XPrefs.Asset()) }
 
+// setupCommit 初始化提交队列。
+// 该函数会从 prefs 中获取提交队列的数量和批次大小，并启动提交队列循环。
 func setupCommit(prefs XPrefs.IBase) {
 	Close()
 
@@ -261,7 +277,7 @@ func (cb *commitBatch) handle(sobj *sessionObject) {
 
 	if action != "" {
 		t2 := XTime.GetMicrosecond()
-		XLog.Notice("XOrm.Commit.Push: [%v] [Cost:%.2fms] %v: %v", action, float64(t2-startTime)/1e3, key, obj.Json())
+		XLog.Notice("XOrm.Commit.Push: [%v] [Cost:%.2fms] %v: %v.", action, float64(t2-startTime)/1e3, key, obj.Json())
 	}
 }
 

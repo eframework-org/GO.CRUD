@@ -48,13 +48,13 @@ func TestContextCache(t *testing.T) {
 				assert.Equal(t, false, sobj.delete, "sessionObject 对象的 delete 字段应为 false。")
 				assert.Nil(t, sobj.clear, "sessionObject 对象的 clear 字段应为 nil。")
 
-				sobj.writable(false)
+				sobj.isWritable(false)
 				assert.Equal(t, 1, sobj.write, "sessionObject 对象的 writable 字段应为 1。")
 
-				sobj.writable(true)
+				sobj.isWritable(true)
 				assert.Equal(t, 2, sobj.write, "sessionObject 对象的 writable 字段应为 2。")
 
-				sobj.writable(false)
+				sobj.isWritable(false)
 				assert.Equal(t, 2, sobj.write, "已被标记为读写的 sessionObject 对象的 writable 字段仍应为 2。")
 
 				sobj.create = true

@@ -13,10 +13,12 @@ import (
 // writableAndCond 为可变参数，可包含布尔值（表示是否可写）和查询条件对象（*Condition 类型）。
 //
 // 函数根据是否有查询条件采用不同的读取策略。对于精确查找（无查询条件），首先尝试从会话内存中读取，
-// 如果启用缓存则尝试从全局内存中读取，最后从远端数据源读取。对于模糊查找（有查询条件），
-// 仅缓存模式下先查询会话内存再查询全局内存；其他模式则按照会话列表、全局列表、远端数据源的顺序查找。
+// 如果启用缓存则尝试从全局内存中读取，最后从远端数据读取。对于模糊查找（有查询条件），
+// 仅缓存模式下先查询会话内存再查询全局内存；其他模式则按照会话列表、全局列表、远端数据的顺序查找。
 //
 // 函数返回读取到的数据模型，如果数据被标记为删除，模型的 IsValid 将被设置为 false。
+//
+// 该函数是线程安全的，可以确保单实例内的数据一致性。
 func Read[T IModel](model T, writableAndCond ...any) T {
 	cacheDumpWait.Wait()
 
@@ -56,7 +58,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 					model.IsValid(false)
 				} else {
 					model = sobj.ptr.(any).(T)
-					sobj.writable(writable)
+					sobj.isWritable(writable)
 				}
 				isGet = true
 			}
@@ -73,7 +75,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 					} else {
 						model = gobj.Clone().(any).(T)      // 内存拷贝
 						sobj := setSessionCache(gid, model) // 监控内存
-						sobj.writable(writable)
+						sobj.isWritable(writable)
 					}
 					isGet = true
 				}
@@ -99,7 +101,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 						// 已经被标记删除，则不读取
 					} else if sobj.ptr.Matchs(cond) {
 						model = sobj.ptr.(any).(T)
-						sobj.writable(writable)
+						sobj.isWritable(writable)
 						return false
 					}
 					return true
@@ -115,7 +117,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 					} else if gobj.Matchs(cond) {
 						model = gobj.Clone().(any).(T)      // 内存拷贝
 						sobj := setSessionCache(gid, model) // 监控内存
-						sobj.writable(writable)
+						sobj.isWritable(writable)
 						return false
 					}
 					return true
@@ -140,7 +142,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 							if model.Matchs(cond) { // 执行一遍条件
 								sobj := obj.(*sessionObject)
 								model = sobj.ptr.(any).(T) // 使用会话内存替换
-								sobj.writable(writable)
+								sobj.isWritable(writable)
 								isSCache = true
 								XLog.Notice("XOrm.Read: using session object: %v", model.DataUnique())
 							} else {
@@ -165,7 +167,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 							} else if !isSCache { // 未在会话内存中，但在全局内存中，替换之
 								model = gobj.Clone().(any).(T)      // 内存拷贝
 								sobj := setSessionCache(gid, model) // 监控内存
-								sobj.writable(writable)
+								sobj.isWritable(writable)
 								XLog.Notice("XOrm.Read: using global object: %v", model.DataUnique())
 							}
 						} else {

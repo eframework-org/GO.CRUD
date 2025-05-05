@@ -17,15 +17,15 @@ import (
 // List 获取数据模型的列表。model 参数为要查询的数据模型，必须实现 IModel 接口。
 // writableAndCond 为可变参数，可包含布尔值（表示是否可写）和查询条件对象（*Condition 类型）。
 //
-// 函数首先验证模型是否已注册，然后解析参数获取可写标记和查询条件。查询数据时按照优先级依次从
-// 会话内存、全局内存和远端数据源获取。会话内存查询会过滤掉已标记删除的数据并应用查询条件；
-// 全局内存查询会克隆数据到会话内存并处理覆盖数据；远端数据源查询会将数据同步到全局内存（如果启用缓存）
-// 和会话内存，并处理删除标记以确保数据一致性。
+// 函数首先验证模型是否已注册，然后解析参数获取可写标记和查询条件。查询数据时按照优先级依次从会话内存、全局内存和远端数据获取。
+// 会话内存查询会过滤掉已标记删除的数据并应用查询条件；
+// 全局内存查询会克隆数据到会话内存并处理覆盖数据；
+// 远端数据查询会将数据同步到全局内存（如果启用缓存）和会话内存，并处理删除标记以确保数据一致性。
+// 对于远端查询结果，函数会检查并使用会话内存和全局内存中的最新数据，移除被标记删除的数据，并添加仅在会话内存或全局内存中的匹配数据作为补充同步。
+// 函数返回满足条件的数据模型切片，已被标记删除的数据将被过滤。
 //
-// 对于远端查询结果，函数会检查并使用会话内存和全局内存中的最新数据，移除被标记删除的数据，
-// 并添加仅在会话内存或全局内存中的匹配数据作为补充同步。函数返回满足条件的数据模型切片，
-// 已被标记删除的数据将被过滤。返回的数据是原始数据的克隆，非条件列举可能导致数据不同步，
-// 建议避免在异步操作期间进行条件列举。
+// 需要注意的是，返回的数据是原始数据的克隆，非条件列举可能导致数据不同步，建议避免在异步操作期间进行条件列举。
+// 该函数是线程安全的，可以确保单实例内的数据一致性。
 func List[T IModel](model T, writableAndCond ...any) []T {
 	cacheDumpWait.Wait()
 
@@ -64,7 +64,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 				sobj := value.(*sessionObject)
 				if !sobj.ptr.IsValid() { // 忽略无效数据
 				} else if sobj.ptr.Matchs(cond) {
-					sobj.writable(writable)
+					sobj.isWritable(writable)
 					chunks[index] = append(chunks[index], sobj.ptr.(T))
 				}
 				return true
@@ -97,7 +97,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 					} else {
 						sobj = setSessionCache(gid, ele) // 监控内存
 					}
-					sobj.writable(writable)
+					sobj.isWritable(writable)
 					chunks[index] = append(chunks[index], ele.(T))
 				}
 				return true
@@ -185,7 +185,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 								nobj := gobj.Clone() // 内存拷贝
 								frets[j] = nobj.(T)
 								sobj := setSessionCache(gid, nobj) // 监控内存
-								sobj.writable(writable)
+								sobj.isWritable(writable)
 								XLog.Notice("XOrm.List: using global object: %v", name)
 							}
 						} else { // 既不在会话内存中，也不在全局内存中
@@ -193,7 +193,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 								setGlobalCache(obj.Clone()) // 内存拷贝
 							}
 							sobj := setSessionCache(gid, obj) // 监控内存
-							sobj.writable(writable)
+							sobj.isWritable(writable)
 						}
 						if !removed {
 							validsMu.Lock()
@@ -267,7 +267,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 						valids = append(valids, gkey)      // 在全局内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
 						nobj := gobj.Clone()               // 内存拷贝
 						sobj := setSessionCache(gid, nobj) // 监控内存
-						sobj.writable(writable)
+						sobj.isWritable(writable)
 						frets = append(frets, nobj.(T))
 						XLog.Notice("XOrm.List: add global object: %v", gkey)
 						return true
