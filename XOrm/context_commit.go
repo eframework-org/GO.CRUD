@@ -210,13 +210,13 @@ func (cb *commitBatch) push() {
 	}
 
 	for _, cobj := range cb.objects {
-		if !cobj.delete && cobj.clear == nil {
+		if cobj.ptr != nil && !cobj.delete && cobj.clear == nil {
 			cb.handle(cobj)
 		}
 	}
 
 	costTime := XTime.GetMicrosecond() - nowTime
-	XLog.Notice("XOrm.Commit.Push: [Finish] [Cost:%.2fms] [Wait:%.2fms] pushed %v object(s)",
+	XLog.Notice("XOrm.Commit.Push: [Finish] [Cost:%.2fms] [Wait:%.2fms] pushed %v object(s).",
 		float64(costTime)/1e3,
 		float64(waitTime)/1e3,
 		len(cb.objects))

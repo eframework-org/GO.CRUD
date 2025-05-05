@@ -21,11 +21,17 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 	cacheDumpWait.Wait()
 
 	gid := goid.Get()
+	ctx := getContext(gid)
+	if ctx == nil {
+		XLog.Critical("XOrm.Read: context was not found: %v", XLog.Caller(1, false))
+		return model
+	}
 	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Read: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return model
 	}
+
 	writable := meta.writable
 	var cond *Condition
 	for _, v := range writableAndCond {

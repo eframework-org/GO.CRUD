@@ -12,6 +12,7 @@
 - 重构 XOrm 的 condition 结构体为 Condition，公开了该接口以供业务层使用
 - 重构 XOrm 的 Condition 函数为 Cond，优化了该函数的实现
 - 重构 XOrm 的 contex_commit.go 模块，优化了提交的性能，简化了事务监控的实现
+- 移除 XOrm 的 context_count.go 模块，可以使用 List 函数替代之
 - 重构了所有 XOrm 模块的单元测试，提高了测试覆盖率及代码质量，新增了若干并发测试
 
 ### 修复

@@ -113,57 +113,57 @@ func Defer() {
 		if tmp, _ := sessionCacheMap.LoadAndDelete(gid); tmp != nil {
 			scache = tmp.(*sync.Map)
 		}
-		if ctx.writable && scache != nil {
-			batch = commitBatchPool.Get().(*commitBatch)
-			tag := XLog.Tag() // 和会话线程保持一致的日志标签
-			if tag != nil {
-				batch.tag = tag.Clone()
-			} else {
-				batch.tag = tag
-			}
-			batch.time = XTime.GetMicrosecond()
-			batch.posthandler = func(batch *commitBatch, sobj *sessionObject) {
-				obj := sobj.raw
-				if sobj.delete || sobj.clear != nil {
-					meta := getModelMeta(obj)
-					if meta.cache {
-						gcache := getGlobalCache(obj)
-						if gcache != nil {
-							if sobj.delete {
-								key := obj.DataUnique()
-								gobj, exist := gcache.Load(key)
-								if exist {
-									ggobj := gobj.(IModel)
-									if !ggobj.IsValid() {
-										gcache.Delete(key) // 同步被删除的数据至全局内存
-									} else {
-										// 因延迟写入，有可能该数据又被标记为写入（被新数据覆盖）
+		if scache != nil {
+			if ctx.writable {
+				batch = commitBatchPool.Get().(*commitBatch)
+				tag := XLog.Tag() // 和会话线程保持一致的日志标签
+				if tag != nil {
+					batch.tag = tag.Clone()
+				} else {
+					batch.tag = tag
+				}
+				batch.time = XTime.GetMicrosecond()
+				batch.posthandler = func(batch *commitBatch, sobj *sessionObject) {
+					obj := sobj.raw
+					if sobj.delete || sobj.clear != nil {
+						meta := getModelMeta(obj)
+						if meta.cache {
+							gcache := getGlobalCache(obj)
+							if gcache != nil {
+								if sobj.delete {
+									key := obj.DataUnique()
+									gobj, exist := gcache.Load(key)
+									if exist {
+										ggobj := gobj.(IModel)
+										if !ggobj.IsValid() {
+											gcache.Delete(key) // 同步被删除的数据至全局内存
+										} else {
+											// 因延迟写入，有可能该数据又被标记为写入（被新数据覆盖）
+										}
 									}
-								}
-							} else {
-								var deleteKeys []string
-								gcache.Range(func(key, value any) bool {
-									gobj := value.(IModel)
-									if !gobj.IsValid() {
-										deleteKeys = append(deleteKeys, key.(string))
-									}
-									return true
-								})
-								if deleteKeys != nil && len(deleteKeys) > 0 {
-									for _, key := range deleteKeys {
-										gcache.Delete(key) // 同步被删除的数据至全局内存
+								} else {
+									var deleteKeys []string
+									gcache.Range(func(key, value any) bool {
+										gobj := value.(IModel)
+										if !gobj.IsValid() {
+											deleteKeys = append(deleteKeys, key.(string))
+										}
+										return true
+									})
+									if deleteKeys != nil && len(deleteKeys) > 0 {
+										for _, key := range deleteKeys {
+											gcache.Delete(key) // 同步被删除的数据至全局内存
+										}
 									}
 								}
 							}
 						}
+						globalUnlock(obj) // 解锁数据表
 					}
-					globalUnlock(obj) // 解锁数据表
+					sobj.reset()
+					sessionObjectPool.Put(sobj) // 回收会话内存
 				}
-				sobj.reset()
-				sessionObjectPool.Put(sobj) // 回收会话内存
-			}
 
-			if scache != nil {
 				var batchChunks [][][]*sessionObject
 				concurrentRange(scache, func(index1 int, key1, value1 any) bool {
 					watch := value1.(*sync.Map)
@@ -205,37 +205,36 @@ func Defer() {
 								}
 							}
 							return true
-						}, func(worker2 int) { batchChunks[index1] = make([][]*sessionObject, worker2) })
+						}, func(chunk2 int) { batchChunks[index1] = make([][]*sessionObject, chunk2) })
 					}
 					return true
-				}, func(worker1 int) { batchChunks = make([][][]*sessionObject, worker1) })
+				}, func(chunk1 int) { batchChunks = make([][][]*sessionObject, chunk1) })
 
 				for _, chunk := range batchChunks {
 					for _, objs := range chunk {
 						if len(objs) > 0 {
 							batch.objects = append(batch.objects, objs...)
-							commitCount++
+							commitCount += len(objs)
 						}
 					}
 				}
+			} else {
+				scache.Range(func(key, value any) bool {
+					watch := value.(*sync.Map)
+					if watch != nil {
+						watch.Range(func(key, value any) bool {
+							sobj := value.(*sessionObject)
+							if sobj != nil {
+								sobj.reset()
+								sessionObjectPool.Put(sobj) // 回收会话内存
+							}
+							return true
+						})
+					}
+					return true
+				})
 			}
-		} else if scache != nil {
-			scache.Range(func(key, value any) bool {
-				watch := value.(*sync.Map)
-				if watch != nil {
-					watch.Range(func(key, value any) bool {
-						sobj := value.(*sessionObject)
-						if sobj != nil {
-							sobj.reset()
-							sessionObjectPool.Put(sobj) // 回收会话内存
-						}
-						return true
-					})
-				}
-				return true
-			})
 		}
-
 		sessionListMap.Delete(gid) // 清除会话列举标识
 
 		if batch != nil {
