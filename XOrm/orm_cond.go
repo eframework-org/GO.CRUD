@@ -5,7 +5,6 @@
 package XOrm
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,68 +15,53 @@ import (
 	"github.com/eframework-org/GO.UTIL/XObject"
 )
 
-// condition 表示一个查询条件，包含基础条件和分页信息
-type condition struct {
+// Condition 表示一个查询条件，包含基础条件和分页信息。
+type Condition struct {
 	Base   *orm.Condition // 基础条件
-	Limit  int            // 分页限制
+	Limit  int            // 分页限定
 	Offset int            // 分页偏移
 }
 
-// Ctor 初始化条件
-func (c *condition) Ctor(obj any) {
+// Ctor 初始化条件。
+func (c *Condition) Ctor(obj any) {
 	c.Base = orm.NewCondition()
 }
 
-// Condition 创建新的条件
+// Cond 创建新的条件。
 //
 // 用法:
-// 1. Condition() - 创建空条件
-// 2. Condition(existingCond *orm.Condition) - 从现有条件创建
-// 3. Condition("a > {0} && b == {1}", 1, 2) - 从表达式和参数创建
-func Condition(condOrExprAndArgs ...any) *condition {
-	c := XObject.New[condition]()
-	if len(condOrExprAndArgs) == 0 {
+// 1. Cond() - 创建空条件
+// 2. Cond(existingCond *orm.Cond) - 从现有条件创建
+// 3. Cond("a > {0} && b == {1}", 1, 2) - 从表达式和参数创建
+func Cond(condOrExprAndParams ...any) *Condition {
+	c := XObject.New[Condition]()
+	if len(condOrExprAndParams) == 0 {
 		return c
 	}
 
-	if cond, ok := condOrExprAndArgs[0].(*orm.Condition); ok {
+	if cond, ok := condOrExprAndParams[0].(*orm.Condition); ok {
 		c.Base = cond
 		return c
 	}
 
-	if expr, ok := condOrExprAndArgs[0].(string); ok {
+	if expr, ok := condOrExprAndParams[0].(string); ok {
 		if expr == "" {
 			return c
 		}
-
-		args := condOrExprAndArgs[1:]
-		count := strings.Count(expr, "{")
-		if count != len(args) {
-			XLog.Panic("XOrm.Condition('%v'): args count doesn't comply with format count.", expr)
-		}
-
-		parsed := expressionCache.getParsedExpression(expr)
-		if len(expr) > 0 && parsed.LRIndex[0] != len(expr)-1 {
-			expr = "(" + expr + ")"
-			parsed = expressionCache.getParsedExpression(expr)
-		}
-
-		ctx := &parseContext{
-			rcond:  c,
-			expr:   expr,
-			params: args,
-			cond:   c.Base,
-		}
-
-		c.Base = doParse(ctx, parsed.LRIndex, 0, len(expr)-1, "", "")
+		params := condOrExprAndParams[1:]
+		cond, limit, offset := exprCondition(expr, params)
+		c.Base = cond
+		c.Limit = limit
+		c.Offset = offset
 		return c
 	}
 
-	XLog.Panic("XOrm.Condition: invalid arguments type: %T", condOrExprAndArgs[0])
+	XLog.Panic("XOrm.Cond: invalid params type: %T", condOrExprAndParams[0])
 	return nil
 }
 
-var operatorMap = map[string]string{
+// condOpMap 是条件操作符映射表。
+var condOpMap = map[string]string{
 	">":          "__gt",
 	">=":         "__gte",
 	"<":          "__lt",
@@ -90,258 +74,526 @@ var operatorMap = map[string]string{
 	"isnull":     "__isnull",
 }
 
-var expressionCache = &expressionMap{}
+const (
+	exprTokenTypeField    = iota // exprTokenTypeField 是字段名类型。
+	exprTokenTypeOperator        // exprTokenTypeOperator 是内置操作符。
+	exprTokenTypeParam           // exprTokenTypeParam 是参数占位符。
+	exprTokenTypeAssign          // exprTokenTypeAssign 是赋值操作符。
+	exprTokenTypeLogic           // exprTokenTypeLogic 是逻辑操作符。
+	exprTokenTypeNot             // exprTokenTypeNot 是非操作符。
+	exprTokenTypeLBracket        // exprTokenTypeLBracket 是左括号类型。
+	exprTokenTypeRBracket        // exprTokenTypeRBracket 是右括号类型。
+	exprTokenTypeLimit           // exprTokenTypeLimit 是限定关键字。
+	exprTokenTypeOffset          // exprTokenTypeOffset 是偏移关键字。
+)
 
-// expressionInfo 缓存已解析的表达式结构
-type expressionInfo struct {
-	LRIndex map[int]int // 左右括号索引映射
-	Tokens  []string    // 分词后的表达式
+// exprToken 是表达式词法单元。
+type exprToken struct {
+	typ   int    // 类型
+	value string // 值
+	pos   int    // 位置
 }
 
-// expressionMap 表达式解析缓存
-type expressionMap struct {
-	sync.Map
+// exprParser 是表达式解析器。
+type exprParser struct {
+	expr   string         // 表达式
+	tokens []exprToken    // 词法单元
+	pos    int            // 当前位置
+	cond   *orm.Condition // 条件实例
+	limit  int            // 分页限定
+	offset int            // 分页偏移
 }
 
-// parseContext 解析上下文
-type parseContext struct {
-	rcond  *condition     // 根条件
-	expr   string         // 原始表达式
-	params []any          // 参数列表
-	key    string         // 当前键
-	value  any            // 当前值
-	andStr string         // AND/OR 操作符
-	notStr string         // NOT 操作符
-	cond   *orm.Condition // 当前条件
+// exprParserCache 是表达式解析器缓存。
+var exprParserCache = sync.Map{}
+
+// parse 解析表达式并构建条件。
+func (parser *exprParser) parse(expr string, tokens []exprToken) {
+	parser.expr = expr
+	parser.tokens = tokens
+	parser.pos = 0
+	parser.limit = -1
+	parser.offset = -1
+	parser.cond = parser.condition()
 }
 
-// getParsedExpression 获取或解析表达式
-func (ec *expressionMap) getParsedExpression(expr string) *expressionInfo {
-	if cached, ok := ec.Load(expr); ok {
-		return cached.(*expressionInfo)
+// current 获取当前词法单元。
+func (parser *exprParser) current() *exprToken {
+	if parser.pos >= len(parser.tokens) {
+		return nil
 	}
-
-	parsed := &expressionInfo{
-		LRIndex: getLRIndex(expr),
-		Tokens:  strings.Fields(expr),
-	}
-	ec.Store(expr, parsed)
-	return parsed
+	return &parser.tokens[parser.pos]
 }
 
-// getLRIndex 获取括号的左右索引映射
-func getLRIndex(expression string) map[int]int {
-	lArr, rArr := make([]int, 0, len(expression)/2), make([]int, 0, len(expression)/2)
-	for i, ch := range expression {
-		switch ch {
-		case '(':
-			lArr = append(lArr, i)
-		case ')':
-			rArr = append(rArr, i)
+// next 前进到下一个词法单元。
+func (parser *exprParser) next() { parser.pos++ }
+
+// condition 将解析表达式并返回条件实例。
+func (parser *exprParser) condition() *orm.Condition {
+	cond := orm.NewCondition()
+
+	// 处理括号表达式或简单表达式
+	if parser.current() != nil && parser.current().typ == exprTokenTypeLBracket {
+		parser.next() // 跳过左括号
+		cond = parser.condition()
+
+		if parser.current() != nil && parser.current().typ == exprTokenTypeRBracket {
+			parser.next() // 跳过右括号
+		} else {
+			XLog.Panic("XOrm.Cond: missing right bracket, expression: %v", parser.expr)
 		}
-	}
+	} else if parser.current() != nil && parser.current().typ == exprTokenTypeNot {
+		parser.next() // 跳过!
 
-	if len(lArr) != len(rArr) {
-		panic(fmt.Sprintf("getLRIndex('%v'): left bracket count %v doesn't equals right bracket count %v",
-			expression, len(lArr), len(rArr)))
-	}
+		if parser.current() != nil && parser.current().typ == exprTokenTypeLBracket {
+			parser.next() // 跳过左括号
+			rightCond := parser.condition()
 
-	lrMap := make(map[int]int, len(rArr))
-	for _, rIndex := range rArr {
-		for j := len(lArr) - 1; j >= 0; j-- {
-			lIndex := lArr[j]
-			if rIndex > lIndex {
-				lrMap[lIndex] = rIndex
-				lArr = append(lArr[:j], lArr[j+1:]...)
-				break
+			if parser.current() != nil && parser.current().typ == exprTokenTypeRBracket {
+				parser.next() // 跳过右括号
+				cond = cond.AndNotCond(rightCond)
+			} else {
+				XLog.Panic("XOrm.Cond: missing right bracket after not operator, expression: %v", parser.expr)
+			}
+		} else {
+			// 处理简单的否定表达式
+			if parser.paging() {
+				// 如果是分页参数，直接返回
+				return cond
+			}
+
+			// 解析字段名
+			if parser.current() != nil && parser.current().typ == exprTokenTypeField {
+				field := parser.current().value
+				parser.next()
+
+				// 解析操作符
+				if parser.current() != nil && parser.current().typ == exprTokenTypeOperator {
+					operator := parser.current().value
+					suffix, ok := condOpMap[operator]
+					if !ok {
+						XLog.Panic("XOrm.Cond: unknown operator: %s, expression: %v", operator, parser.expr)
+					}
+					parser.next()
+
+					// 解析参数
+					if parser.current() != nil && parser.current().typ == exprTokenTypeParam {
+						paramIdx := parser.param(parser.current().value)
+						parser.next()
+
+						// 构建条件
+						fieldWithOp := field + suffix
+						rightCond := orm.NewCondition().And(fieldWithOp, paramIdx)
+						cond = cond.AndNotCond(rightCond)
+					} else {
+						XLog.Panic("XOrm.Cond: parameter required after operator, expression: %v", parser.expr)
+					}
+				} else {
+					XLog.Panic("XOrm.Cond: operator required after field name, expression: %v", parser.expr)
+				}
+			} else {
+				XLog.Panic("XOrm.Cond: field name required after not operator, expression: %v", parser.expr)
+			}
+		}
+	} else {
+		// 处理简单表达式
+		if parser.paging() {
+			// 如果是分页参数，直接返回
+			return cond
+		}
+
+		// 解析字段名
+		if parser.current() != nil && parser.current().typ == exprTokenTypeField {
+			field := parser.current().value
+			parser.next()
+
+			// 解析操作符
+			if parser.current() != nil && parser.current().typ == exprTokenTypeOperator {
+				operator := parser.current().value
+				suffix, ok := condOpMap[operator]
+				if !ok {
+					XLog.Panic("XOrm.Cond: unknown operator: %s, expression: %v", operator, parser.expr)
+				}
+				parser.next()
+
+				// 解析参数
+				if parser.current() != nil && parser.current().typ == exprTokenTypeParam {
+					paramIdx := parser.param(parser.current().value)
+					parser.next()
+
+					// 构建条件
+					fieldWithOp := field + suffix
+					cond = cond.And(fieldWithOp, paramIdx)
+				} else {
+					XLog.Panic("XOrm.Cond: parameter required after operator, expression: %v", parser.expr)
+				}
+			} else {
+				XLog.Panic("XOrm.Cond: operator required after field name, expression: %v", parser.expr)
+			}
+		} else {
+			// 如果没有匹配任何模式，可能是语法错误
+			if parser.current() != nil {
+				XLog.Panic("XOrm.Cond: unexpected token: %s.", parser.current().value)
+			} else {
+				XLog.Panic("XOrm.Cond: unexpected end of expression, expression: %v", parser.expr)
 			}
 		}
 	}
-	return lrMap
-}
 
-// doParse 执行解析
-func doParse(ctx *parseContext, lrMap map[int]int, left, right int, andStr, notStr string) *orm.Condition {
-	if andStr != "" {
-		ncond := orm.NewCondition()
-		ncond = parseSubExpr(ctx, lrMap, left, right, andStr, notStr, ncond)
-		ctx.cond = applyLogicalOp(ctx.cond, ncond, andStr, notStr == "!")
-	} else {
-		ctx.cond = parseSubExpr(ctx, lrMap, left, right, andStr, notStr, ctx.cond)
-	}
-	return ctx.cond
-}
+	// 处理后续的逻辑操作符
+	for parser.current() != nil && parser.current().typ == exprTokenTypeLogic {
+		logic := parser.current().value
+		parser.next()
 
-// parseSubExpr 解析子表达式并构建条件
-// 处理两种情况：
-// 1. 包含括号的复杂表达式：递归解析括号内的内容
-// 2. 简单表达式：直接解析tokens
-func parseSubExpr(ctx *parseContext, lrMap map[int]int, left, right int, andStr, notStr string, cond *orm.Condition) *orm.Condition {
-	ctx.cond = cond
-	subExpression := subStr(ctx.expr, left+1, right)
+		// 处理 limit 和 offset 的语法
+		if parser.paging() {
+			continue
+		}
 
-	if strings.Contains(subExpression, "(") {
-		leftIndex, rightIndex := findBrackets(lrMap, left, right)
-		andStr, notStr, ctx.cond = parseTokens(ctx, subStr(ctx.expr, left+1, leftIndex), andStr, notStr)
-		ctx.cond = doParse(ctx, lrMap, leftIndex, rightIndex, andStr, notStr)
-		ctx.cond = parseRemaining(ctx, lrMap, rightIndex+1, right)
-	} else {
-		_, _, ctx.cond = parseTokens(ctx, subExpression, andStr, notStr)
-	}
-	return ctx.cond
-}
+		var rightCond *orm.Condition
 
-// parseTokens 解析表达式中的标记
-func parseTokens(ctx *parseContext, subExpression, andStr, notStr string) (string, string, *orm.Condition) {
-	tokens := strings.Fields(subExpression)
-	if len(tokens) == 0 {
-		return andStr, notStr, ctx.cond
-	}
+		// 处理取反操作
+		not := false
+		if parser.current() != nil && parser.current().typ == exprTokenTypeNot {
+			not = true
+			parser.next()
+		}
 
-	for _, token := range tokens {
-		if err := parseToken(ctx, token); err != nil {
-			XLog.Panic("XOrm.parseTokens: %v", err)
+		// 解析右侧表达式
+		if parser.current() != nil && parser.current().typ == exprTokenTypeLBracket {
+			parser.next() // 跳过左括号
+			rightCond = parser.condition()
+
+			if parser.current() != nil && parser.current().typ == exprTokenTypeRBracket {
+				parser.next() // 跳过右括号
+			} else {
+				XLog.Panic("XOrm.Cond: missing right bracket, expression: %v", parser.expr)
+			}
+		} else {
+			// 解析字段名
+			if parser.current() != nil && parser.current().typ == exprTokenTypeField {
+				field := parser.current().value
+				parser.next()
+
+				// 解析操作符
+				if parser.current() != nil && parser.current().typ == exprTokenTypeOperator {
+					operator := parser.current().value
+					suffix, ok := condOpMap[operator]
+					if !ok {
+						XLog.Panic("XOrm.Cond: unknown operator: %s, expression: %v", operator, parser.expr)
+					}
+					parser.next()
+
+					// 解析参数
+					if parser.current() != nil && parser.current().typ == exprTokenTypeParam {
+						paramIdx := parser.param(parser.current().value)
+						parser.next()
+
+						// 构建条件
+						fieldWithOp := field + suffix
+						rightCond = orm.NewCondition()
+						if not {
+							rightCond = rightCond.AndNot(fieldWithOp, paramIdx)
+						} else {
+							rightCond = rightCond.And(fieldWithOp, paramIdx)
+						}
+					} else {
+						XLog.Panic("XOrm.Cond: parameter required after operator, expression: %v", parser.expr)
+					}
+				} else {
+					XLog.Panic("XOrm.Cond: operator required after field name, expression: %v", parser.expr)
+				}
+			} else {
+				// 如果没有匹配任何模式，可能是语法错误
+				if parser.current() != nil {
+					XLog.Panic("XOrm.Cond: unexpected token, expression: %v", parser.expr)
+				} else {
+					XLog.Panic("XOrm.Cond: unexpected end of expression, expression: %v", parser.expr)
+				}
+			}
+
+			not = false // 已经处理了否定
+		}
+
+		// 应用逻辑操作
+		if logic == "&&" {
+			if not {
+				cond = cond.AndNotCond(rightCond)
+			} else {
+				cond = cond.AndCond(rightCond)
+			}
+		} else if logic == "||" {
+			if not {
+				cond = cond.OrNotCond(rightCond)
+			} else {
+				cond = cond.OrCond(rightCond)
+			}
 		}
 	}
 
-	return ctx.andStr, ctx.notStr, ctx.cond
-}
-
-// parseToken 解析单个标记
-func parseToken(ctx *parseContext, token string) error {
-	switch token {
-	case "!":
-		ctx.notStr = token
-	case "||", "&&":
-		ctx.andStr = token
-	default:
-		return parseOperatorOrValue(ctx, token)
-	}
-	return nil
-}
-
-// parseOperatorOrValue 解析操作符或值
-func parseOperatorOrValue(ctx *parseContext, token string) error {
-	if op, exist := operatorMap[token]; exist {
-		if ctx.key == "" {
-			return fmt.Errorf("unidentified operator: %v", token)
-		}
-		ctx.key += op
-		return nil
+	// 如果还有 token 未处理并且不是 exprTokenTypeRBracket 则判定为语法错误
+	if parser.current() != nil && parser.current().typ != exprTokenTypeRBracket {
+		XLog.Panic("XOrm.Cond: unexpected token after expression, expression: %v", parser.expr)
 	}
 
-	if strings.HasPrefix(token, "{") && strings.HasSuffix(token, "}") {
-		return handleParamValue(ctx, token)
-	}
-
-	if ctx.key != "" {
-		return fmt.Errorf("unexpected token: %v", token)
-	}
-	ctx.key = token
-	return nil
-}
-
-// handleParamValue 处理参数值
-func handleParamValue(ctx *parseContext, token string) error {
-	idxStr := token[1 : len(token)-1]
-	idx := toInt(idxStr)
-	if idx < 0 {
-		panic(fmt.Sprintf("negative index: parameter index cannot be negative (%d)", idx))
-	}
-	if idx >= len(ctx.params) {
-		panic(fmt.Sprintf("index out of range: parameter index %d exceeds argument count %d", idx, len(ctx.params)))
-	}
-	ctx.value = ctx.params[idx]
-	ctx.cond = applyCondition(ctx.rcond, ctx.cond, ctx.key, ctx.value, ctx.andStr)
-	ctx.key = ""
-	return nil
-}
-
-// findBrackets 查找括号对
-func findBrackets(lrMap map[int]int, left, right int) (int, int) {
-	for i := left + 1; i <= right; i++ {
-		if rIndex, exist := lrMap[i]; exist {
-			return i, rIndex
-		}
-	}
-	return left, right
-}
-
-// parseRemaining 解析剩余部分
-func parseRemaining(ctx *parseContext, lrMap map[int]int, left, right int) *orm.Condition {
-	subExpression := subStr(ctx.expr, left, right)
-	if strings.Contains(subExpression, "(") {
-		return doParse(ctx, lrMap, left, right, "", "")
-	}
-	_, _, ctx.cond = parseTokens(ctx, subExpression, "", "")
-	return ctx.cond
-}
-
-// applyCondition 应用条件
-func applyCondition(rcond *condition, cond *orm.Condition, key string, value any, andStr string) *orm.Condition {
-	if key == "limit" {
-		rcond.Limit = value.(int)
-	} else if key == "offset" {
-		rcond.Offset = value.(int)
-	} else {
-		switch andStr {
-		case "||":
-			cond = cond.Or(key, value)
-		default:
-			cond = cond.And(key, value)
-		}
-	}
 	return cond
 }
 
-// applyLogicalOp 应用逻辑操作符
-func applyLogicalOp(cond, ncond *orm.Condition, andStr string, isNot bool) *orm.Condition {
-	if andStr == "||" {
-		if isNot {
-			return cond.OrNotCond(ncond)
+// paging 处理分页参数。
+func (parser *exprParser) paging() bool {
+	// 处理 limit
+	if parser.current() != nil && parser.current().typ == exprTokenTypeLimit {
+		parser.next()
+
+		// 检查是否有等号，必须有等号
+		if parser.current() != nil && parser.current().typ == exprTokenTypeAssign {
+			parser.next()
+		} else {
+			XLog.Panic("XOrm.Cond: assignment operator (=) required after limit, expression: %v", parser.expr)
 		}
-		return cond.OrCond(ncond)
+
+		if parser.current() != nil && parser.current().typ == exprTokenTypeParam {
+			paramIdx := parser.param(parser.current().value)
+			parser.limit = paramIdx
+			parser.next()
+			return true
+		} else {
+			XLog.Panic("XOrm.Cond: parameter required after limit, expression: %v", parser.expr)
+		}
 	}
-	if isNot {
-		return cond.AndNotCond(ncond)
+
+	// 处理 offset
+	if parser.current() != nil && parser.current().typ == exprTokenTypeOffset {
+		parser.next()
+
+		// 检查是否有等号，必须有等号
+		if parser.current() != nil && parser.current().typ == exprTokenTypeAssign {
+			parser.next()
+		} else {
+			XLog.Panic("XOrm.Cond: assignment operator (=) required after offset, expression: %v", parser.expr)
+		}
+
+		if parser.current() != nil && parser.current().typ == exprTokenTypeParam {
+			paramIdx := parser.param(parser.current().value)
+			parser.offset = paramIdx
+			parser.next()
+			return true
+		} else {
+			XLog.Panic("XOrm.Cond: parameter required after offset, expression: %v", parser.expr)
+		}
 	}
-	return cond.AndCond(ncond)
+
+	return false
 }
 
-// subStr 提取子字符串
-func subStr(str string, from, to int) string {
-	if from < 0 || to < 0 || from > to || from >= len(str) || to > len(str) {
-		return ""
-	}
-	return str[from:to]
-}
-
-// toInt 将字符串转换为整数
-func toInt(str string) int {
-	val, err := strconv.Atoi(str)
+// param 根据传入的索引字符串解析参数的索引。
+func (parser *exprParser) param(index string) int {
+	str := index[1 : len(index)-1] // 去掉花括号
+	idx, err := strconv.Atoi(str)
 	if err != nil {
-		panic(fmt.Sprintf("invalid syntax: %s is not a valid parameter index", str))
+		XLog.Panic("XOrm.Cond: invalid parameter index: %s, expression: %v", str, parser.expr)
 	}
-	return val
+	if idx < 0 {
+		XLog.Panic("XOrm.Cond: parameter index cannot be negative: %d, expression: %v", idx, parser.expr)
+	}
+	return idx
 }
 
+// exprCondition 解析表达式并返回条件实例、分页限定和分页偏移。
+func exprCondition(expr string, params []any) (cond *orm.Condition, limit, offset int) {
+	var parser *exprParser
+	if tmp, _ := exprParserCache.Load(expr); tmp != nil {
+		parser = tmp.(*exprParser)
+	} else {
+		tokens := exprTokenize(expr)
+		parser = &exprParser{}
+		parser.parse(expr, tokens)
+		exprParserCache.Store(expr, parser)
+	}
+
+	cond = cloneCondition(parser.cond, expr, params)
+
+	if parser.limit != -1 {
+		if parser.limit >= len(params) || parser.limit < 0 {
+			XLog.Panic("XOrm.Cond: parameter limit index is out of range: %d, expression: %v", parser.limit, parser.expr)
+		} else {
+			limit = params[parser.limit].(int)
+		}
+	}
+
+	if parser.offset != -1 {
+		if parser.offset >= len(params) || parser.offset < 0 {
+			XLog.Panic("XOrm.Cond: parameter offset index is out of range: %d, expression: %v", parser.offset, parser.expr)
+		} else {
+			offset = params[parser.offset].(int)
+		}
+	}
+
+	return cond, limit, offset
+}
+
+// exprTokenize 将表达式分解为词法单元。
+func exprTokenize(expr string) (tokens []exprToken) {
+	tokens = make([]exprToken, 0)
+
+	// 预处理表达式，确保标识符前后有空格符。
+	var result strings.Builder
+	result.Grow(len(expr) * 2) // 预分配足够的空间
+	for i := 0; i < len(expr); i++ {
+		switch expr[i] {
+		case '(':
+			result.WriteString(" ( ")
+		case ')':
+			result.WriteString(" ) ")
+		case '&':
+			if i+1 < len(expr) && expr[i+1] == '&' {
+				result.WriteString(" && ")
+				i++
+			} else {
+				result.WriteByte(expr[i])
+			}
+		case '|':
+			if i+1 < len(expr) && expr[i+1] == '|' {
+				result.WriteString(" || ")
+				i++
+			} else {
+				result.WriteByte(expr[i])
+			}
+		case '!':
+			if i+1 < len(expr) && expr[i+1] == '=' {
+				result.WriteString(" != ")
+				i++
+			} else {
+				result.WriteString(" ! ")
+			}
+		case '>':
+			if i+1 < len(expr) && expr[i+1] == '=' {
+				result.WriteString(" >= ")
+				i++
+			} else {
+				result.WriteString(" > ")
+			}
+		case '<':
+			if i+1 < len(expr) && expr[i+1] == '=' {
+				result.WriteString(" <= ")
+				i++
+			} else {
+				result.WriteString(" < ")
+			}
+		case '=':
+			if i+1 < len(expr) && expr[i+1] == '=' {
+				result.WriteString(" == ")
+				i++
+			} else {
+				result.WriteString(" = ")
+			}
+		default:
+			result.WriteByte(expr[i])
+		}
+	}
+
+	// 对表达式进行分词处理。
+	expr = result.String()
+	words := strings.Fields(expr)
+	pos := 0
+
+	for _, word := range words {
+		switch word {
+		case "(":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeLBracket, value: word, pos: pos})
+		case ")":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeRBracket, value: word, pos: pos})
+		case "&&":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeLogic, value: word, pos: pos})
+		case "||":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeLogic, value: word, pos: pos})
+		case "!":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeNot, value: word, pos: pos})
+		case "limit":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeLimit, value: word, pos: pos})
+		case "offset":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeOffset, value: word, pos: pos})
+		case "=":
+			tokens = append(tokens, exprToken{typ: exprTokenTypeAssign, value: word, pos: pos})
+		default:
+			if strings.HasPrefix(word, "{") && strings.HasSuffix(word, "}") {
+				tokens = append(tokens, exprToken{typ: exprTokenTypeParam, value: word, pos: pos})
+			} else if _, ok := condOpMap[word]; ok {
+				tokens = append(tokens, exprToken{typ: exprTokenTypeOperator, value: word, pos: pos})
+			} else {
+				tokens = append(tokens, exprToken{typ: exprTokenTypeField, value: word, pos: pos})
+			}
+		}
+		pos += len(word) + 1
+	}
+
+	return tokens
+}
+
+// cloneCondition 使用传入的参数对 orm.Condition 进行深拷贝。
+// expr 是原始表达式。
+// params 是新的参数列表。
+// 返回一个新的 orm.Condition 实例。
+func cloneCondition(cond *orm.Condition, expr string, params []any) *orm.Condition {
+	if cond == nil {
+		return nil
+	}
+	ncond := orm.NewCondition()
+	rparams := getCondParams(cond)
+	nparams := make([]beegoCondValue, len(rparams))
+	for i, param := range rparams {
+		// 复制基本字段
+		nparams[i] = beegoCondValue{
+			exprs:  make([]string, len(param.exprs)),
+			isOr:   param.isOr,
+			isNot:  param.isNot,
+			isCond: param.isCond,
+			isRaw:  param.isRaw,
+			sql:    param.sql,
+		}
+
+		// 复制表达式
+		copy(nparams[i].exprs, param.exprs)
+
+		// 应用新参数
+		if param.args != nil {
+			pindex := param.args[0].(int)
+			if pindex >= len(params) || pindex < 0 {
+				XLog.Panic("XOrm.Cond: parameter %v index is out of range: %d, expression: %v", param.exprs[0], pindex, expr)
+			}
+			nparams[i].args = append(nparams[i].args, params[pindex])
+		}
+
+		// 递归克隆嵌套的条件
+		if param.isCond && param.cond != nil {
+			nparams[i].cond = cloneCondition(param.cond, expr, params)
+		}
+	}
+
+	// 设置新条件的参数
+	(*beegoCondition)(unsafe.Pointer(ncond)).params = nparams
+
+	return ncond
+}
+
+// beegoCondition 结构体映射了 beego 中的条件结构。
 type beegoCondition struct {
 	params []beegoCondValue
 }
 
-// beegoCondValue 条件值结构
+// beegoCondValue 结构体映射了 beego 中的条件值结构。
 type beegoCondValue struct {
-	Exprs  []string
-	Args   []any
-	Cond   *orm.Condition
-	IsOr   bool
-	IsNot  bool
-	IsCond bool
-	IsRaw  bool
-	Sql    string
+	exprs  []string
+	args   []any
+	cond   *orm.Condition
+	isOr   bool
+	isNot  bool
+	isCond bool
+	isRaw  bool
+	sql    string
 }
 
-// getCondParams 获取条件参数（内部使用）
+// getCondParams 获取条件参数。
 func getCondParams(cond *orm.Condition) []beegoCondValue {
 	ncond := (*beegoCondition)(unsafe.Pointer(cond))
 	return ncond.params

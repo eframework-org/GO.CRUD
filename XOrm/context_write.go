@@ -15,19 +15,36 @@ import (
 // 同时清除删除标记。接着写入会话内存，设置创建标记，并清除删除标记和清理标记。需要注意的是，
 // 写入操作不会立即持久化到远端数据源。
 func Write[T IModel](model T) {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
-	meta := getModelInfo(model)
+	ctx := getContext(gid)
+	if ctx == nil {
+		XLog.Critical("XOrm.Write: context was not found: %v", XLog.Caller(1, false))
+		return
+	}
+	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Write: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return
 	}
-	model.IsValid(true)
-	if meta.Cache { // 缓存至内存
-		ret := setGlobalCache(model.Clone())
-		ret.delete = false
+	if !ctx.writable {
+		XLog.Error("XOrm.Write: context was not writable: %v", XLog.Caller(1, false))
+		return
 	}
-	ret := setSessionCache(gid, model, meta)
-	ret.create = true
-	ret.delete = false
-	ret.clear = false
+	if !meta.writable {
+		XLog.Error("XOrm.Write: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		return
+	}
+
+	model.IsValid(true)
+
+	if meta.cache {
+		setGlobalCache(model.Clone())
+	}
+
+	sobj := setSessionCache(gid, model)
+	sobj.create = true
+	sobj.delete = false
+	sobj.clear = nil
 }

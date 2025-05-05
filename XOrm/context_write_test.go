@@ -6,99 +6,76 @@ package XOrm
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+
+	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestContextWrite 测试写入操作
+// TestContextWrite 测试写入操作。
 func TestContextWrite(t *testing.T) {
 	tests := []struct {
-		name   string
-		args   []bool
-		expect bool
+		cache    bool
+		writable bool
 	}{
-		{
-			name:   "WriteCacheModel",
-			args:   []bool{true, true, true},
-			expect: true,
-		},
-		{
-			name:   "WriteReadWriteModel",
-			args:   []bool{false, true, true},
-			expect: true,
-		},
-		{
-			name:   "WriteOnlyReadModel",
-			args:   []bool{false, true, false},
-			expect: false,
-		},
-		{
-			name:   "WriteNoPersistModel",
-			args:   []bool{false, false, false},
-			expect: false,
-		},
+		{true, true},
+		{true, false},
+		{false, true},
 	}
 
-	for i, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			SetupBaseTest(t)
-			defer ResetBaseTest(t)
-			ResetAllResource(t)
+	defer ResetContext(t)
+	defer ResetBaseTest(t)
 
-			Cleanup()
-			Register(NewTestBaseModel(), test.args[0], test.args[1], test.args[2])
+	model := NewTestBaseModel()
 
-			model := NewTestBaseModel()
-			model.ID = Incre(model)
-			model.IntVal = i
-			model.FloatVal = float64(i) + 0.5
-			model.StringVal = fmt.Sprintf("test_string_%d", i)
-			model.BoolVal = true
+	for _, test := range tests {
+		ResetContext(t)
+		ResetBaseTest(t)
+		SetupBaseTest(t, test.cache, test.writable)
 
-			defer func() {
-				Defer()
-				FlushNow()
-				// 验证写入结果
-				nmodel := NewTestBaseModel()
-				res := nmodel.Read(Condition("int_val == {0}", i))
-				if res != test.expect {
-					t.Errorf("result expect %v", test.expect)
-				}
-			}()
+		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
+			var wg sync.WaitGroup
+			for i := range 100 {
+				wg.Add(1)
 
-			Watch()
-			// 执行写入
-			Write(model)
+				go func(chunk int) {
+					defer wg.Done()
+
+					gid := goid.Get()
+					ctx := contextPool.Get().(*context)
+					ctx.writable = test.writable
+					contextMap.Store(gid, ctx)
+					defer contextMap.Delete(gid)
+
+					data := NewTestBaseModel()
+					data.ID = chunk + 1
+					data.IntVal = chunk
+					data.FloatVal = float64(chunk) + 0.5
+					data.StringVal = fmt.Sprintf("test_string_%d", chunk)
+					data.BoolVal = true
+
+					Write(data)
+
+					var sobj *sessionObject
+					if scache := getSessionCache(gid, model); scache != nil {
+						if tmp, _ := scache.Load(data.DataUnique()); tmp != nil {
+							sobj = tmp.(*sessionObject)
+						}
+					}
+
+					var gobj IModel
+					if gcache := getGlobalCache(model); gcache != nil {
+						if tmp, _ := getGlobalCache(model).Load(data.DataUnique()); tmp != nil {
+							gobj = tmp.(IModel)
+						}
+					}
+
+					assert.Equal(t, test.writable, sobj != nil && data == sobj.ptr, "有效的数据应当被会话监控，且实例指针相等。")
+					assert.Equal(t, test.cache && test.writable, gobj != nil && gobj.Equals(data), "有效的数据应当被全局缓存，且实例数据相等。")
+				}(i)
+			}
+			wg.Wait()
 		})
 	}
-}
-
-func TestContextSimpleWrite(t *testing.T) {
-	t.Run("WriteByPrimaryKey", func(t *testing.T) {
-		SetupBaseTest(t)
-		defer ResetBaseTest(t)
-		ResetAllResource(t)
-		PrepareTestData(t, 5)
-
-		model := NewTestBaseModel()
-		model.ID = 100
-		model.IntVal = 100
-		model.FloatVal = float64(100) + 0.5
-		model.StringVal = fmt.Sprintf("test_string_%d", 100)
-		model.BoolVal = true
-
-		defer func() {
-			Defer()
-			FlushNow()
-			// 验证写入结果
-			nmodel := NewTestBaseModel()
-			res := nmodel.Read(Condition("int_val == {0}", 100))
-			if !res || nmodel.ID != 100 {
-				t.Error("result expect ")
-			}
-		}()
-
-		Watch()
-		// 执行写入
-		Write(model)
-	})
 }

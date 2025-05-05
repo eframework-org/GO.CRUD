@@ -5,239 +5,128 @@
 package XOrm
 
 import (
-	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestRead 测试读取操作
-func TestRead(t *testing.T) {
+// TestContextRead 测试读取操作。
+func TestContextRead(t *testing.T) {
+	defer ResetContext(t)
+	defer ResetBaseTest(t)
+
+	model := NewTestBaseModel()
+	ResetBaseTest(t)
+	SetupBaseTest(t)
+
 	tests := []struct {
-		name     string
-		cache    bool
-		persist  bool
-		writable bool
-		prepare  func(t *testing.T) *TestBaseModel // 准备数据
-		cond     func() *condition                 // 查询条件
+		name       string
+		concurrent int
+		arrange    func(chunk int)
 	}{
 		{
-			name:     "ReadFromSessionMemory",
-			cache:    true,
-			persist:  true,
-			writable: true,
-			prepare: func(t *testing.T) *TestBaseModel {
-				model := NewTestBaseModel()
-				model.ID = Incre(model)
-				model.IntVal = 1
-				model.FloatVal = 1.5
-				model.StringVal = "session_memory"
-				model.BoolVal = true
-				Write(model)
-				return model
-			},
-			cond: func() *condition {
-				return Condition("int_val == {0}", 1)
-			},
-		},
-		{
-			name:     "ReadFromGlobalMemory",
-			cache:    true,
-			persist:  true,
-			writable: false,
-			prepare: func(t *testing.T) *TestBaseModel {
-				model := NewTestBaseModel()
-				model.ID = Incre(model)
-				model.IntVal = 2
-				model.FloatVal = 2.5
-				model.StringVal = "global_memory"
-				model.BoolVal = true
-				Write(model)
-				return model
-			},
-			cond: func() *condition {
-				return Condition("int_val == {0}", 2)
-			},
-		},
-		{
-			name:     "ReadFromDatabase",
-			cache:    false,
-			persist:  true,
-			writable: true,
-			prepare: func(t *testing.T) *TestBaseModel {
-				model := NewTestBaseModel()
-				model.ID = Incre(model)
-				model.IntVal = 3
-				model.FloatVal = 3.5
-				model.StringVal = "database"
-				model.BoolVal = true
-				Write(model)
-				return model
-			},
-			cond: func() *condition {
-				return Condition("int_val == {0}", 3)
-			},
-		},
-		{
-			name:     "ReadWithFuzzyCondition",
-			cache:    true,
-			persist:  true,
-			writable: true,
-			prepare: func(t *testing.T) *TestBaseModel {
-				// 准备多条数据用于模糊查询
-				for i := 4; i < 6; i++ {
-					model := NewTestBaseModel()
-					model.ID = Incre(model)
-					model.IntVal = i
-					model.FloatVal = float64(i) + 0.5
-					model.StringVal = fmt.Sprintf("fuzzy_%d", i)
-					model.BoolVal = true
-					Write(model)
+			name:       "Session", // 会话内存
+			concurrent: 10,        // 会话使用多线程测试
+			arrange: func(chunk int) {
+				gid := goid.Get()
+				isSessionListed(gid, model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IntVal = data.ID
+					data.IsValid(true)
+					sobj := setSessionCache(gid, data)
+					if i%2 == 1 {
+						sobj.ptr.IsValid(false)
+					}
 				}
-				return nil
-			},
-			cond: func() *condition {
-				return Condition("int_val > {0}", 4)
 			},
 		},
 		{
-			name:     "ReadDeletedData",
-			cache:    true,
-			persist:  true,
-			writable: true,
-			prepare: func(t *testing.T) *TestBaseModel {
-				model := NewTestBaseModel()
-				model.ID = Incre(model)
-				model.IntVal = 7
-				model.FloatVal = 7.5
-				model.StringVal = "deleted"
-				model.BoolVal = true
-				Write(model)
-				Delete(model)
-				return model
+			name:       "Global", // 全局内存
+			concurrent: 10,       // 全局使用多线程测试
+			arrange: func(chunk int) {
+				isGlobalListed(model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IntVal = data.ID
+					data.IsValid(i%2 == 0)
+					setGlobalCache(data)
+				}
 			},
-			cond: func() *condition {
-				return Condition("int_val == {0}", 7)
+		},
+		{
+			name:       "Database", // 持久化层
+			concurrent: 1,          // 持久化层使用单线程测试
+			arrange: func(chunk int) {
+				data := NewTestBaseModel()
+				data.ID = chunk*1000 + 1
+				data.IsValid(true)
+				data.Write()
 			},
 		},
 	}
-	for i, tt := range tests {
-		if i != 3 {
-			continue
-		}
-		t.Run(tt.name, func(t *testing.T) {
-			SetupBaseTest(t)
-			defer ResetBaseTest(t)
-			ResetAllResource(t)
 
-			Cleanup()
-			Register(NewTestBaseModel(), tt.cache, tt.persist, tt.writable)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ResetContext(t)
 
-			Watch(true)
-			// 准备数据
-			model := tt.prepare(t)
-			Defer() // 提交到数据库
-			// 等待异步操作完成
-			FlushNow()
+			var wg sync.WaitGroup
+			for i := range 10 {
+				wg.Add(1)
 
-			// 执行读取操作
-			nmodel := NewTestBaseModel()
-			result := Read(nmodel, tt.writable, tt.cond())
+				go func(chunk int) {
+					defer wg.Done()
 
-			switch tt.name {
-			case "ReadFromSessionMemory", "ReadFromGlobalMemory", "ReadFromDatabase":
-				if !result.IsValid() {
-					t.Error("Should read valid data")
-				}
-				if result.IntVal != model.IntVal || result.StringVal != model.StringVal {
-					t.Error("Read data mismatch")
-				}
-			case "ReadWithFuzzyCondition":
-				if !result.IsValid() {
-					t.Error("Should read valid data")
-				}
-				if result.IntVal <= 4 {
-					t.Error("Fuzzy condition not working")
-				}
-			case "ReadDeletedData":
-				if result.IsValid() {
-					t.Error("Should not read deleted data")
-				}
+					gid := goid.Get()
+					ctx := contextPool.Get().(*context)
+					contextMap.Store(gid, ctx)
+					defer contextMap.Delete(gid)
+
+					test.arrange(chunk)
+					var datas []*TestBaseModel
+
+					{
+						// 精确读取存在的数据
+						exactValid := NewTestBaseModel()
+						exactValid.ID = chunk*1000 + 1
+						datas = append(datas, Read(exactValid))
+					}
+
+					{
+						// 精确读取不存在的数据
+						exactInvalid := NewTestBaseModel()
+						exactInvalid.ID = chunk*1000 + 2
+						datas = append(datas, Read(exactInvalid))
+					}
+
+					{
+						// 模糊读取存在的数据
+						fuzzyValid := NewTestBaseModel()
+						fuzzyValid.ID = chunk*1000 + 3
+						datas = append(datas, Read(fuzzyValid, Cond("int_val == {0}", fuzzyValid.ID)))
+					}
+
+					{
+						// 模糊读取不存在的数据
+						fuzzyInvalid := NewTestBaseModel()
+						fuzzyInvalid.ID = chunk*1000 + 4
+						datas = append(datas, Read(fuzzyInvalid, Cond("int_val == {0}", fuzzyInvalid.ID)))
+					}
+
+					for _, data := range datas {
+						var sobj *sessionObject
+						if tmp, _ := getSessionCache(gid, model).Load(data.DataUnique()); tmp != nil {
+							sobj = tmp.(*sessionObject)
+						}
+						assert.Equal(t, data.IsValid(), sobj != nil && data == sobj.ptr, "有效的数据应当被会话监控，且实例指针相等。")
+					}
+				}(i)
 			}
+			wg.Wait()
 		})
 	}
-}
-
-// TestReadPriority 测试读取优先级
-func TestReadPriority(t *testing.T) {
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetAllResource(t)
-
-	// 准备测试数据
-	Watch(true)
-	Cleanup()
-	Register(NewTestBaseModel(), true, true, true)
-
-	// 写入数据到数据库
-	model := NewTestBaseModel()
-	model.ID = Incre(model)
-	model.IntVal = 1
-	model.FloatVal = 1.5
-	model.StringVal = "original"
-	model.BoolVal = true
-	Write(model)
-	Defer()
-
-	// 等待异步操作完成
-	FlushNow()
-
-	// 测试会话内存优先级
-	t.Run("ReadMemoryPriority", func(t *testing.T) {
-		gid := goid.Get()
-		List(model)
-
-		scache := getSessionCache(gid, model)
-		if scache != nil {
-			scache.Range(func(key, value any) bool {
-				sobj := value.(*sessionObject)
-				if sobj.ptr.(*TestBaseModel).ID == 1 {
-					sobj.ptr.(*TestBaseModel).StringVal = "session_modified"
-				}
-				return true
-			})
-		}
-		// 读取数据
-		nmodel := NewTestBaseModel()
-		result := Read(nmodel, true, Condition("int_val == {0}", 1))
-
-		if result.StringVal != "session_modified" {
-			t.Error("Should read from session memory first")
-		}
-
-		gcache := getGlobalCache(model)
-		if gcache != nil {
-			gcache.Range(func(key, value any) bool {
-				sobj := value.(*globalObject)
-				if sobj.ptr.(*TestBaseModel).ID == 1 {
-					sobj.ptr.(*TestBaseModel).StringVal = "global_modified"
-				}
-				return true
-			})
-		}
-		// 读取数据
-		nmodel = NewTestBaseModel()
-		result = Read(nmodel, true, Condition("int_val == {0}", 1))
-		if result.StringVal == "global_modified" {
-			t.Error("Should read from session memory")
-		}
-
-		clearSessionCache(t)
-		// 读取数据
-		nmodel = NewTestBaseModel()
-		result = Read(nmodel, true, Condition("int_val == {0}", 1))
-		if result.StringVal != "global_modified" {
-			t.Error("Should read from global memory when session memory not available", result.StringVal)
-		}
-	})
 }

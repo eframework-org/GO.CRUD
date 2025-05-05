@@ -5,8 +5,6 @@
 package XOrm
 
 import (
-	"sync/atomic"
-
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/petermattis/goid"
 )
@@ -20,19 +18,21 @@ import (
 //
 // 函数返回读取到的数据模型，如果数据被标记为删除，模型的 IsValid 将被设置为 false。
 func Read[T IModel](model T, writableAndCond ...any) T {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
-	meta := getModelInfo(model)
+	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Read: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return model
 	}
-	writable := meta.Writable
-	var cond *condition
+	writable := meta.writable
+	var cond *Condition
 	for _, v := range writableAndCond {
 		switch nv := v.(type) {
 		case bool:
 			writable = nv
-		case *condition:
+		case *Condition:
 			cond = nv
 		default:
 			XLog.Critical("XOrm.Read: writableAndCond of %v type is error: %v", v, XLog.Caller(1, false))
@@ -45,165 +45,129 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 			obj, _ := scache.Load(model.DataUnique())
 			if obj != nil {
 				sobj := obj.(*sessionObject)
-				if sobj.clear || sobj.delete {
+				if !sobj.ptr.IsValid() { // 忽略无效数据
 					// 已经被标记删除，则不读取
 					model.IsValid(false)
 				} else {
 					model = sobj.ptr.(any).(T)
-					sobj.setWritable(writable)
+					sobj.writable(writable)
 				}
 				isGet = true
 			}
 		}
-		if !isGet && meta.Cache { // 全局内存读取
+		if !isGet && meta.cache { // 全局内存读取
 			gcache := getGlobalCache(model)
 			if gcache != nil {
 				obj, _ := gcache.Load(model.DataUnique())
 				if obj != nil {
-					gobj := obj.(*globalObject)
-					if gobj.delete {
+					gobj := obj.(IModel)
+					if !gobj.IsValid() {
 						// 已经被标记删除，则不读取
 						model.IsValid(false)
 					} else {
-						model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
-						sobj := setSessionCache(gid, model, meta) // 监控内存
-						sobj.setWritable(writable)
+						model = gobj.Clone().(any).(T)      // 内存拷贝
+						sobj := setSessionCache(gid, model) // 监控内存
+						sobj.writable(writable)
 					}
 					isGet = true
 				}
 			}
 		}
 		if !isGet { // 远端读取
-			globalWait("XOrm.Read", model, meta)
+			globalWait("XOrm.Read", model)
 			if model.Read(cond) {
 				isGet = true
-				if meta.Cache {
+				if meta.cache {
 					setGlobalCache(model.Clone()) // 保存至全局内存中
 				}
-				setSessionCache(gid, model, meta) // 监控内存
+				setSessionCache(gid, model) // 监控内存
 			}
 		}
 	} else { // 模糊查找
-		if meta.Cache && !meta.Persist { // 仅缓存，则先查询会话内存，而后查询全局内存
-			var isGet int32
+		if isSessionListed(gid, model) { // 会话内存被列举过
 			scache := getSessionCache(gid, model)
 			if scache != nil { // 会话内存读取
 				concurrentRange(scache, func(index int, key, value any) bool {
 					sobj := value.(*sessionObject)
-					if sobj.clear || sobj.delete {
+					if !sobj.ptr.IsValid() { // 忽略无效数据
 						// 已经被标记删除，则不读取
 					} else if sobj.ptr.Matchs(cond) {
 						model = sobj.ptr.(any).(T)
-						sobj.setWritable(writable)
-						atomic.SwapInt32(&isGet, 1)
+						sobj.writable(writable)
 						return false
 					}
 					return true
 				})
 			}
-			if isGet == 0 {
-				gcache := getGlobalCache(model)
-				if gcache != nil { // 全局内存读取
-					concurrentRange(gcache, func(index int, key, value any) bool {
-						gobj := value.(*globalObject)
-						if gobj.delete {
-							// 已经被标记删除，则不读取
-						} else if gobj.ptr.Matchs(cond) {
-							model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
-							sobj := setSessionCache(gid, model, meta) // 监控内存
-							sobj.setWritable(writable)
-							return false
-						}
-						return true
-					})
-				}
+		} else if isGlobalListed(model) { // 全局内存被列举过
+			gcache := getGlobalCache(model)
+			if gcache != nil { // 全局内存读取
+				concurrentRange(gcache, func(index int, key, value any) bool {
+					gobj := value.(IModel)
+					if !gobj.IsValid() {
+						// 已经被标记删除，则不读取
+					} else if gobj.Matchs(cond) {
+						model = gobj.Clone().(any).(T)      // 内存拷贝
+						sobj := setSessionCache(gid, model) // 监控内存
+						sobj.writable(writable)
+						return false
+					}
+					return true
+				})
 			}
-		} else {
-			if isSessionListed(gid, model, false, false, cond) { // 会话内存被列举过
+		} else { // 远端筛选
+			globalWait("XOrm.Read", model)
+			if model.Read(cond) {
+				// 判断内存中是否有
+				isSCache := false
 				scache := getSessionCache(gid, model)
 				if scache != nil { // 会话内存读取
-					concurrentRange(scache, func(index int, key, value any) bool {
-						sobj := value.(*sessionObject)
-						if sobj.clear || sobj.delete {
+					obj, _ := scache.Load(model.DataUnique())
+					if obj != nil {
+						sobj := obj.(*sessionObject)
+						if !sobj.ptr.IsValid() { // 忽略无效数据
 							// 已经被标记删除，则不读取
-						} else if sobj.ptr.Matchs(cond) {
-							model = sobj.ptr.(any).(T)
-							sobj.setWritable(writable)
-							return false
+							model.IsValid(false) // 设置为不合法，直接返回
+							XLog.Notice("XOrm.Read: session object is marked as invalid or deleted: %v", model.DataUnique())
+							return model
+						} else {
+							if model.Matchs(cond) { // 执行一遍条件
+								sobj := obj.(*sessionObject)
+								model = sobj.ptr.(any).(T) // 使用会话内存替换
+								sobj.writable(writable)
+								isSCache = true
+								XLog.Notice("XOrm.Read: using session object: %v", model.DataUnique())
+							} else {
+								// 注意此处可能导致数据覆盖：从远端模糊查找返回的对象已在内存中，但内存对象并不满足筛选条件，若该内存对象有修改，则会导致这些修改被覆盖（无效）
+								XLog.Error("XOrm.Read: remote object has overwritten session object because of mismatched condition, the change of session object will be discarded, name = %v", model.DataUnique())
+							}
 						}
-						return true
-					})
+					}
 				}
-			} else if isGlobalListed(model, meta, false, false, cond) { // 全局内存被列举过
-				gcache := getGlobalCache(model)
-				if gcache != nil { // 全局内存读取
-					concurrentRange(gcache, func(index int, key, value any) bool {
-						gobj := value.(*globalObject)
-						if gobj.delete {
-							// 已经被标记删除，则不读取
-						} else if gobj.ptr.Matchs(cond) {
-							model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
-							sobj := setSessionCache(gid, model, meta) // 监控内存
-							sobj.setWritable(writable)
-							return false
-						}
-						return true
-					})
-				}
-			} else { // 远端筛选
-				globalWait("XOrm.Read", model, meta)
-				if model.Read(cond) {
-					// 判断内存中是否有
-					isSCache := false
-					scache := getSessionCache(gid, model)
-					if scache != nil { // 会话内存读取
-						obj, _ := scache.Load(model.DataUnique())
+				if meta.cache { // 全局内存读取
+					gcache := getGlobalCache(model)
+					if gcache != nil {
+						obj, _ := gcache.Load(model.DataUnique())
 						if obj != nil {
-							sobj := obj.(*sessionObject)
-							if sobj.clear || sobj.delete {
+							// 已经在全局内存中
+							gobj := obj.(IModel)
+							if !gobj.IsValid() {
 								// 已经被标记删除，则不读取
 								model.IsValid(false) // 设置为不合法，直接返回
-								XLog.Notice("XOrm.Read: session object is marked as deleted: %v", model.DataUnique())
+								XLog.Notice("XOrm.Read: global object is marked as invalid: %v", model.DataUnique())
 								return model
-							} else {
-								if model.Matchs(cond) { // 执行一遍条件
-									sobj := obj.(*sessionObject)
-									model = sobj.ptr.(any).(T) // 使用会话内存替换
-									sobj.setWritable(writable)
-									isSCache = true
-									XLog.Notice("XOrm.Read: using session object: %v", model.DataUnique())
-								} else {
-									// 注意此处可能导致数据覆盖：从远端模糊查找返回的对象已在内存中，但内存对象并不满足筛选条件，若该内存对象有修改，则会导致这些修改被覆盖（无效）
-									XLog.Error("XOrm.Read: remote object has overwritten session object because of mismatched condition, the change of session object will be discarded, name = %v", model.DataUnique())
-								}
+							} else if !isSCache { // 未在会话内存中，但在全局内存中，替换之
+								model = gobj.Clone().(any).(T)      // 内存拷贝
+								sobj := setSessionCache(gid, model) // 监控内存
+								sobj.writable(writable)
+								XLog.Notice("XOrm.Read: using global object: %v", model.DataUnique())
 							}
+						} else {
+							setGlobalCache(model.Clone()) // 保存至全局内存
 						}
 					}
-					if meta.Cache { // 全局内存读取
-						gcache := getGlobalCache(model)
-						if gcache != nil {
-							obj, _ := gcache.Load(model.DataUnique())
-							if obj != nil {
-								// 已经在全局内存中
-								gobj := obj.(*globalObject)
-								if gobj.delete {
-									// 已经被标记删除，则不读取
-									model.IsValid(false) // 设置为不合法，直接返回
-									XLog.Notice("XOrm.Read: global object is marked as deleted: %v", model.DataUnique())
-									return model
-								} else if !isSCache { // 未在会话内存中，但在全局内存中，替换之
-									model = gobj.ptr.Clone().(any).(T)        // 内存拷贝
-									sobj := setSessionCache(gid, model, meta) // 监控内存
-									sobj.setWritable(writable)
-									XLog.Notice("XOrm.Read: using global object: %v", model.DataUnique())
-								}
-							} else {
-								setGlobalCache(model.Clone()) // 保存至全局内存
-							}
-						}
-					}
-					setSessionCache(gid, model, meta) // 监控内存
 				}
+				setSessionCache(gid, model) // 监控内存
 			}
 		}
 	}

@@ -64,7 +64,7 @@ type IModel interface {
 	// Count 统计符合条件的记录数量。
 	// cond 为可选的查询条件。
 	// 返回记录数量，如果发生错误则返回 -1。
-	Count(cond ...*condition) int
+	Count(cond ...*Condition) int
 
 	// Max 获取指定列的最大值。
 	// column 为可选的列名，若不指定则使用主键列。
@@ -90,18 +90,18 @@ type IModel interface {
 	// cond 为可选的查询条件，若不指定则使用主键作为查询条件。
 	// 读取成功后会调用 OnDecode 进行解码处理。
 	// 返回是否成功读取到记录。
-	Read(cond ...*condition) bool
+	Read(cond ...*Condition) bool
 
 	// List 查询符合条件的记录列表。
 	// rets 必须是指向切片的指针，用于存储查询结果。
 	// cond 为可选的查询条件，可以指定偏移量和限制数量。
 	// 返回查询到的记录数量，如果发生错误则返回 -1。
-	List(rets any, cond ...*condition) int
+	List(rets any, cond ...*Condition) int
 
 	// Clear 清理符合条件的记录。
 	// cond 为可选的查询条件，若不指定则清理所有记录。
 	// 返回受影响的行数，如果发生错误则返回 -1。
-	Clear(cond ...*condition) int
+	Clear(cond ...*Condition) int
 
 	// IsValid 检查或设置对象的有效性。
 	// value 为可选的设置值，如果提供则设置对象的有效性状态。
@@ -125,7 +125,7 @@ type IModel interface {
 	// Matchs 检查对象是否匹配指定条件。
 	// cond 为可选的匹配条件。
 	// 返回对象是否满足所有条件。
-	Matchs(cond ...*condition) bool
+	Matchs(cond ...*Condition) bool
 }
 
 // Model 实现了 IModel 接口的基础模型。
@@ -178,16 +178,16 @@ func (md *Model[T]) ModelUnique() string {
 // 如果模型信息或主键未找到，将返回空字符串。
 func (md *Model[T]) DataUnique() string {
 	if XString.IsEmpty(md.dataUnique) {
-		meta := getModelInfo(md.this)
+		meta := getModelMeta(md.this)
 		if meta == nil {
 			XLog.Warn("XOrm.Model.DataUnique(%v): model info is nil.", md.this.ModelUnique())
 			return ""
 		}
-		if meta.Fields.Pk == nil {
+		if meta.fields.pk == nil {
 			XLog.Warn("XOrm.Model.DataUnique(%v): primary key was not found.", md.this.ModelUnique())
 			return ""
 		}
-		fvalue := md.this.DataValue(meta.Fields.Pk.Name)
+		fvalue := md.this.DataValue(meta.fields.pk.name)
 		md.dataUnique = fmt.Sprintf("%v_%v", md.this.ModelUnique(), fvalue)
 	}
 	return md.dataUnique
@@ -208,7 +208,7 @@ func (md *Model[T]) DataValue(field string) any {
 // Count 统计符合条件的记录数量。
 // cond 为可选的查询条件。
 // 返回记录数量，如果发生错误则返回 -1。
-func (md *Model[T]) Count(cond ...*condition) int {
+func (md *Model[T]) Count(cond ...*Condition) int {
 	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
 		XLog.Error("XOrm.Model.Count(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
@@ -240,9 +240,9 @@ func (md *Model[T]) Max(column ...string) int {
 			name = column[0]
 		}
 		if name == "" {
-			meta := getModelInfo(md.this)
-			if meta != nil && meta.Fields.Pk != nil {
-				name = meta.Fields.Pk.Column
+			meta := getModelMeta(md.this)
+			if meta != nil && meta.fields.pk != nil {
+				name = meta.fields.pk.column
 			}
 		}
 		if name == "" {
@@ -281,9 +281,9 @@ func (md *Model[T]) Min(column ...string) int {
 			name = column[0]
 		}
 		if name == "" {
-			meta := getModelInfo(md.this)
-			if meta != nil && meta.Fields.Pk != nil {
-				name = meta.Fields.Pk.Column
+			meta := getModelMeta(md.this)
+			if meta != nil && meta.fields.pk != nil {
+				name = meta.fields.pk.column
 			}
 		}
 		if name == "" {
@@ -316,16 +316,16 @@ func (md *Model[T]) Delete() int {
 		XLog.Error("XOrm.Model.Delete(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
 	} else {
-		meta := getModelInfo(md.this)
+		meta := getModelMeta(md.this)
 		if meta == nil {
 			XLog.Error("XOrm.Model.Delete(%v): model info is nil", md.this.TableName())
 			return -1
 		}
-		if meta.Fields.Pk == nil {
+		if meta.fields.pk == nil {
 			XLog.Error("XOrm.Model.Delete(%v): primary key was not found", md.this.TableName())
 			return -1
 		}
-		cond := orm.NewCondition().And(meta.Fields.Pk.Column, md.this.DataValue(meta.Fields.Pk.Name)) // 附加主键值
+		cond := orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name)) // 附加主键值
 		qsetter := ormer.QueryTable(md.this).SetCond(cond)
 		count, err := qsetter.Delete()
 		if err != nil {
@@ -359,17 +359,17 @@ func (md *Model[T]) Write() int {
 // cond 为可选的查询条件，若不指定则使用主键作为查询条件。
 // 读取成功后会调用 OnDecode 进行解码处理。
 // 返回是否成功读取到记录。
-func (md *Model[T]) Read(cond ...*condition) bool {
+func (md *Model[T]) Read(cond ...*Condition) bool {
 	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
 		XLog.Error("XOrm.Model.Read(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return false
 	} else {
-		meta := getModelInfo(md.this)
+		meta := getModelMeta(md.this)
 		if meta == nil {
 			XLog.Error("XOrm.Model.Read(%v): model info is nil", md.this.TableName())
 			return false
 		}
-		if meta.Fields.Pk == nil {
+		if meta.fields.pk == nil {
 			XLog.Error("XOrm.Model.Read(%v): primary key was not found", md.this.TableName())
 			return false
 		}
@@ -378,7 +378,7 @@ func (md *Model[T]) Read(cond ...*condition) bool {
 			ncond := cond[0]
 			qsetter = qsetter.SetCond(ncond.Base)
 		} else {
-			qsetter = qsetter.SetCond(orm.NewCondition().And(meta.Fields.Pk.Column, md.this.DataValue(meta.Fields.Pk.Name))) // 附加主键值
+			qsetter = qsetter.SetCond(orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name))) // 附加主键值
 		}
 		that := md.this // qsetter.One() 会修改对象，所以需要暂存指针
 		e := qsetter.One(that)
@@ -398,7 +398,7 @@ func (md *Model[T]) Read(cond ...*condition) bool {
 // rets 必须是指向切片的指针，用于存储查询结果。
 // cond 为可选的查询条件，可以指定偏移量和限制数量。
 // 返回查询到的记录数量，如果发生错误则返回 -1。
-func (md *Model[T]) List(rets any, cond ...*condition) int {
+func (md *Model[T]) List(rets any, cond ...*Condition) int {
 	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
 		XLog.Error("XOrm.Model.List(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
@@ -446,27 +446,27 @@ func (md *Model[T]) List(rets any, cond ...*condition) int {
 // Clear 清理符合条件的记录。
 // cond 为可选的查询条件，若不指定则清理所有记录。
 // 返回受影响的行数，如果发生错误则返回 -1。
-func (md *Model[T]) Clear(cond ...*condition) int {
+func (md *Model[T]) Clear(cond ...*Condition) int {
 	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
 		XLog.Error("XOrm.Model.Clear(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
 	} else {
 		qsetter := ormer.QueryTable(md.this.TableName())
-		var ncond *condition
+		var ncond *Condition
 		if len(cond) > 0 && cond[0] != nil {
 			ncond = cond[0]
 		} else {
 			// beego orm 的 Delete 方法不支持条件，所以需要使用主键字段 >= 0 作为条件，这样可以匹配所有记录
-			meta := getModelInfo(md.this)
+			meta := getModelMeta(md.this)
 			if meta == nil {
 				XLog.Error("XOrm.Model.Clear(%v): model info is nil", md.this.TableName())
 				return -1
 			}
-			if meta.Fields.Pk == nil {
+			if meta.fields.pk == nil {
 				XLog.Error("XOrm.Model.Clear(%v): primary key was not found", md.this.TableName())
 				return -1
 			}
-			ncond = Condition(fmt.Sprintf("%v >= {0}", meta.Fields.Pk.Column), 0)
+			ncond = Cond(fmt.Sprintf("%v >= {0}", meta.fields.pk.column), 0)
 		}
 
 		qsetter = qsetter.SetCond(ncond.Base)
@@ -537,7 +537,7 @@ func (md *Model[T]) Equals(model IModel) bool {
 		return md.this == model
 	}
 
-	meta := getModelInfo(md.this)
+	meta := getModelMeta(md.this)
 	if meta == nil {
 		return false
 	}
@@ -545,9 +545,9 @@ func (md *Model[T]) Equals(model IModel) bool {
 	thisAddr := reflect.ValueOf(md.this).Elem()
 	compAddr := reflect.ValueOf(model).Elem()
 
-	for _, field := range meta.Fields.FieldsDB {
-		thisVal := thisAddr.FieldByName(field.Name).Interface()
-		compFld := compAddr.FieldByName(field.Name)
+	for _, field := range meta.fields.fieldsDB {
+		thisVal := thisAddr.FieldByName(field.name).Interface()
+		compFld := compAddr.FieldByName(field.name)
 		if !compFld.IsValid() {
 			return false
 		}
@@ -563,12 +563,12 @@ func (md *Model[T]) Equals(model IModel) bool {
 // Matchs 检查对象是否匹配指定条件。
 // cond 为可选的匹配条件。
 // 返回对象是否满足所有条件。
-func (md *Model[T]) Matchs(cond ...*condition) bool {
+func (md *Model[T]) Matchs(cond ...*Condition) bool {
 	if len(cond) == 0 || cond[0] == nil {
 		return true
 	}
 
-	meta := getModelInfo(md.this)
+	meta := getModelMeta(md.this)
 	if meta == nil {
 		return false
 	}
@@ -577,7 +577,7 @@ func (md *Model[T]) Matchs(cond ...*condition) bool {
 }
 
 // doMatch 内部匹配方法
-func doMatch(model IModel, meta *modelInfo, conds []beegoCondValue) bool {
+func doMatch(model IModel, meta *beegoModelInfo, conds []beegoCondValue) bool {
 	if conds == nil {
 		return false
 	}
@@ -591,20 +591,20 @@ func doMatch(model IModel, meta *modelInfo, conds []beegoCondValue) bool {
 			hasNext = true
 		}
 
-		if cond.IsCond {
-			if doMatch(model, meta, getCondParams(cond.Cond)) == !cond.IsNot {
-				if !hasNext || nextCond.IsOr {
+		if cond.isCond {
+			if doMatch(model, meta, getCondParams(cond.cond)) == !cond.isNot {
+				if !hasNext || nextCond.isOr {
 					return true
 				}
-			} else if !hasNext || !nextCond.IsOr {
+			} else if !hasNext || !nextCond.isOr {
 				return false
 			}
 		} else {
-			if doComp(model, meta, cond) == !cond.IsNot {
-				if !hasNext || nextCond.IsOr {
+			if doComp(model, meta, cond) == !cond.isNot {
+				if !hasNext || nextCond.isOr {
 					return true
 				}
-			} else if !hasNext || !nextCond.IsOr {
+			} else if !hasNext || !nextCond.isOr {
 				return false
 			}
 		}
@@ -616,7 +616,7 @@ func doMatch(model IModel, meta *modelInfo, conds []beegoCondValue) bool {
 //
 //	整型支持: Int,Int32,Int64
 //	浮点支持: Float32,Float64
-func doComp(model IModel, meta *modelInfo, cond beegoCondValue) bool {
+func doComp(model IModel, meta *beegoModelInfo, cond beegoCondValue) bool {
 	if !isValidCondition(cond) {
 		return false
 	}
@@ -632,13 +632,13 @@ func doComp(model IModel, meta *modelInfo, cond beegoCondValue) bool {
 	case "isnull":
 		return isNullValue(cvalue, ctype)
 	case "in":
-		return handleInOperator(cvalue, ctype, cond.Args)
+		return handleInOperator(cvalue, ctype, cond.args)
 	case "exact", "ne":
-		return handleExactOperator(cvalue, ctype, operator, cond.Args[0])
+		return handleExactOperator(cvalue, ctype, operator, cond.args[0])
 	case "gt", "gte", "lt", "lte":
-		return handleComparisonOperator(cvalue, ctype, operator, cond.Args[0])
+		return handleComparisonOperator(cvalue, ctype, operator, cond.args[0])
 	case "contains", "startswith", "endswith":
-		return handleStringOperator(cvalue, ctype, operator, cond.Args[0])
+		return handleStringOperator(cvalue, ctype, operator, cond.args[0])
 	default:
 		XLog.Error("XOrm.Model.doComp: operator: %v wasn't supported for table: %v", operator, model.TableName())
 		return false
@@ -647,23 +647,23 @@ func doComp(model IModel, meta *modelInfo, cond beegoCondValue) bool {
 
 // 检查条件是否有效
 func isValidCondition(cond beegoCondValue) bool {
-	return len(cond.Exprs) > 0 && len(cond.Args) > 0
+	return len(cond.exprs) > 0 && len(cond.args) > 0
 }
 
 // 解析条件表达式
 func parseCondition(cond beegoCondValue) (field, operator string) {
-	field = cond.Exprs[0]
+	field = cond.exprs[0]
 	operator = "exact"
-	if len(cond.Exprs) == 2 {
-		operator = cond.Exprs[1]
+	if len(cond.exprs) == 2 {
+		operator = cond.exprs[1]
 	}
 	return
 }
 
 // 获取字段值
-func getFieldValue(model IModel, meta *modelInfo, field string) any {
-	if fmeta := meta.Fields.Columns[field]; fmeta != nil {
-		return model.DataValue(fmeta.Name)
+func getFieldValue(model IModel, meta *beegoModelInfo, field string) any {
+	if fmeta := meta.fields.columns[field]; fmeta != nil {
+		return model.DataValue(fmeta.name)
 	}
 	return nil
 }

@@ -23,22 +23,23 @@ import (
 // 函数返回满足条件的数据模型数量，如果模型未注册，则返回 0。
 // 计数会自动排除已标记删除的数据。对于仅缓存模式的模型，只在内存中计数。
 // 计数结果会受到数据同步状态的影响。
-func Count[T IModel](model T, cond ...*condition) int {
+func Count[T IModel](model T, cond ...*Condition) int {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
-	meta := getModelInfo(model)
+	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Count: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return 0
 	}
 	ret := 0
-	if isSessionListed(gid, model, false, false, cond...) { // 会话内存读取
+	if isSessionListed(gid, model) { // 会话内存读取
 		var lret int64 = 0
 		scache := getSessionCache(gid, model)
 		if scache != nil {
 			concurrentRange(scache, func(index int, key, value any) bool {
 				sobj := value.(*sessionObject)
-				if sobj.clear || sobj.delete {
-					// 已经被标记删除，则不读取
+				if !sobj.ptr.IsValid() { // 忽略无效数据
 				} else if sobj.ptr.Matchs(cond...) {
 					atomic.AddInt64(&lret, 1)
 				}
@@ -46,15 +47,15 @@ func Count[T IModel](model T, cond ...*condition) int {
 			})
 		}
 		ret = int(lret)
-	} else if isGlobalListed(model, meta, false, false, cond...) || (meta.Cache && !meta.Persist) { // 全局内存读取（若仅支持缓存，则只在内存中查找）
+	} else if isGlobalListed(model) { // 全局内存读取
 		var lret int64 = 0
 		gcache := getGlobalCache(model)
 		if gcache != nil {
 			concurrentRange(gcache, func(index int, key, value any) bool {
-				gobj := value.(*globalObject)
-				if gobj.delete {
+				gobj := value.(IModel)
+				if !gobj.IsValid() {
 					// 已经被标记删除，则不读取
-				} else if gobj.ptr.Matchs(cond...) {
+				} else if gobj.Matchs(cond...) {
 					atomic.AddInt64(&lret, 1)
 				}
 				return true

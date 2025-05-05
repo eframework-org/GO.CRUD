@@ -21,47 +21,67 @@ import (
 // 对于未在会话内存中处理过的对象，会克隆到会话内存并设置相应的删除和清理标记。
 //
 // 清理操作是软删除，不会立即从内存中移除数据。被标记清理的数据在读取时会被忽略。
-func Clear[T IModel](model T, cond ...*condition) {
+func Clear[T IModel](model T, cond ...*Condition) {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
-	meta := getModelInfo(model)
+	ctx := getContext(gid)
+	if ctx == nil {
+		XLog.Critical("XOrm.Clear: context was not found: %v", XLog.Caller(1, false))
+		return
+	}
+	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Clear: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return
 	}
+	if !ctx.writable {
+		XLog.Error("XOrm.Clear: context was not writable: %v", XLog.Caller(1, false))
+		return
+	}
+	if !meta.writable {
+		XLog.Error("XOrm.Clear: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		return
+	}
 
-	marked := syncMapPool.Get().(*sync.Map)
+	model.IsValid(false)
+
+	var marked sync.Map
 	scache := getSessionCache(gid, model)
-	if scache != nil { // 标记会话内存清除
+	if scache != nil { // 标记相关的会话内存为无效，避免再次读取
 		concurrentRange(scache, func(index int, key, value any) bool {
 			if value.(*sessionObject).ptr.Matchs(cond...) {
-				value.(*sessionObject).delete = true
-				value.(*sessionObject).clear = true
+				value.(*sessionObject).ptr.IsValid(false)
 				marked.Store(key, 1)
 			}
 			return true
 		})
-		isSessionListed(gid, model, false, true, cond...) // 清除会话列举状态
 	}
 
-	if meta.Cache { // 标记全局内存清除
+	if meta.cache { // 标记相关的全局内存为无效，避免再次读取
 		gcache := getGlobalCache(model)
 		if gcache != nil {
 			concurrentRange(gcache, func(index int, key, value any) bool {
-				if value.(*globalObject).ptr.Matchs(cond...) {
-					value.(*globalObject).delete = true
+				gobj := value.(IModel)
+				if gobj.Matchs(cond...) {
+					gobj.IsValid(false)
 					if _, loaded := marked.Load(key); !loaded {
-						nobj := value.(*globalObject).ptr.Clone()
-						ret := setSessionCache(gid, nobj, meta) // 监控会话内存
-						ret.delete = true
-						ret.clear = true
+						nobj := gobj.Clone()
+						ret := setSessionCache(gid, nobj) // 标记相关的会话内存为无效，避免再次读取
+						ret.ptr.IsValid(false)
 					}
 				}
 				return true
 			})
-			isGlobalListed(model, meta, false, true, cond...) // 清除全局列举状态
 		}
 	}
 
-	marked.Clear()
-	syncMapPool.Put(marked)
+	sobj := setSessionCache(gid, model)
+	if len(cond) > 0 {
+		sobj.clear = cond[0]
+	} else {
+		sobj.clear = Cond()
+	}
+	sobj.create = false
+	sobj.delete = false
 }

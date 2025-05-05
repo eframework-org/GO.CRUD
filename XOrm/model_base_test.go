@@ -66,22 +66,22 @@ func NewTestBaseModel() *TestBaseModel {
 
 var setupDatabaseOnce sync.Once
 
-// SetupBaseTest 初始化测试数据库
-func SetupBaseTest(t *testing.T) {
+// SetupBaseTest 设置测试数据库。
+func SetupBaseTest(t *testing.T, cacheAndWritable ...bool) {
 	// 连接测试数据库
 	testDatabase, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Fatalf("连接测试数据库失败: %v", err)
 	}
 	defer testDatabase.Close()
 
 	// 创建测试表
 	if _, err := testDatabase.Exec(TestDropTableSQL); err != nil {
-		t.Fatalf("Failed to drop test table: %v", err)
+		t.Fatalf("删除测试表失败: %v", err)
 	}
 	if _, err := testDatabase.Exec(TestCreateTableSQL); err != nil {
-		t.Fatalf("Failed to create test table: %v", err)
+		t.Fatalf("创建测试表失败: %v", err)
 	}
 
 	// 注册数据库
@@ -89,78 +89,80 @@ func SetupBaseTest(t *testing.T) {
 		if err := orm.RegisterDataBase(TestAliasName, "mysql",
 			fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4",
 				TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName)); err != nil {
-			t.Fatalf("Failed to register database: %v", err)
+			t.Fatalf("注册数据库失败: %v", err)
 		}
 	})
 
 	// 注册模型
-	Register(NewTestBaseModel(), true, true, true)
+	cache := true
+	writable := true
+	if len(cacheAndWritable) > 0 {
+		cache = cacheAndWritable[0]
+		if len(cacheAndWritable) > 1 {
+			writable = cacheAndWritable[1]
+		}
+	}
+	Meta(NewTestBaseModel(), cache, writable)
 }
 
-// ResetBaseTest 清理测试数据库
+// ResetBaseTest 删除测试数据库。
 func ResetBaseTest(t *testing.T) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Fatalf("连接测试数据库失败: %v", err)
 	}
 	defer db.Close()
 
+	// 清理测试数据
 	if _, err := db.Exec(TestDropTableSQL); err != nil {
-		t.Fatalf("Failed to cleanup test table: %v", err)
+		t.Fatalf("清理测试表失败: %v", err)
 	}
 
-	// 清理数据库连接和注册信息
+	// 清理注册信息
 	orm.ResetModelCache()
-	modelCacheMu.Lock()
-	modelCache = make(map[string]*modelInfo)
-	modelCacheMu.Unlock()
-	commitWaitGroup = sync.WaitGroup{}
-	clearGlobalMax()
-	clearCommitMap()
-	clearLock()
 }
 
-// ClearBaseTest 仅清空测试数据库数据
+// ClearBaseTest 清空测试数据库。
 func ClearBaseTest(t *testing.T) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("Failed to connect to test database: %v", err)
+		t.Fatalf("连接测试数据库失败: %v", err)
 	}
 	defer db.Close()
 
 	if _, err := db.Exec(TestTruncateTableSQL); err != nil {
-		t.Fatalf("Failed to truncate test table: %v", err)
+		t.Fatalf("清空测试表失败: %v", err)
 	}
 }
 
-// PrepareTestData 准备测试数据
-func PrepareTestData(t *testing.T, count int) []*TestBaseModel {
+// WriteBaseTest 写入测试数据库。
+func WriteBaseTest(t *testing.T, count int) []*TestBaseModel {
 	var models []*TestBaseModel
 	for i := 1; i <= count; i++ {
 		model := NewTestBaseModel()
-		model.ID = Incre(model)
+		model.ID = i
 		model.IntVal = i
 		model.FloatVal = float64(i) + 0.5
 		model.StringVal = fmt.Sprintf("test_string_%d", i)
 		model.BoolVal = i%2 == 0
 
 		if writeCount := model.Write(); writeCount <= 0 {
-			t.Fatalf("Failed to insert test data %d", i)
+			t.Fatalf("插入测试数据 %d 失败", i)
 		}
 		models = append(models, model)
 	}
 	return models
 }
 
-// TestModelBasic 测试基本操作
+// TestModelBasic 测试基本操作。
 func TestModelBasic(t *testing.T) {
 	// 测试写入
 	t.Run("Write", func(t *testing.T) {
 		SetupBaseTest(t)
 		defer ResetBaseTest(t)
-		ResetAllResource(t)
+		ResetContext(t)
 
 		model := NewTestBaseModel()
 		model.IntVal = 1
@@ -170,7 +172,7 @@ func TestModelBasic(t *testing.T) {
 
 		count := model.Write()
 		if count <= 0 {
-			t.Error("Write operation failed")
+			t.Error("写入操作失败")
 		}
 	})
 
@@ -178,28 +180,28 @@ func TestModelBasic(t *testing.T) {
 	t.Run("Read", func(t *testing.T) {
 		SetupBaseTest(t)
 		defer ResetBaseTest(t)
-		ResetAllResource(t)
-		models := PrepareTestData(t, 5)
+		ResetContext(t)
+		models := WriteBaseTest(t, 5)
 
 		// 测试主键读取
 		nmodel := NewTestBaseModel()
 		nmodel.ID = models[3].ID
 		if !nmodel.Read() {
-			t.Error("Read by primary key failed")
+			t.Error("通过主键读取失败")
 		}
 		if !nmodel.Equals(models[3]) {
-			t.Error("Read by primary key data mismatch")
+			t.Error("通过主键读取的数据不匹配")
 		}
 
 		// 测试条件读取
 		nmodel = NewTestBaseModel()
 		nmodel.ID = models[2].ID
-		cond := Condition("int_val == {0}", 4)
+		cond := Cond("int_val == {0}", 4)
 		if !nmodel.Read(cond) {
-			t.Error("Read with condition failed")
+			t.Error("通过条件读取失败")
 		}
 		if !nmodel.Equals(models[3]) {
-			t.Error("Read with condition data mismatch")
+			t.Error("通过条件读取的数据不匹配")
 		}
 	})
 
@@ -207,40 +209,40 @@ func TestModelBasic(t *testing.T) {
 	t.Run("Delete", func(t *testing.T) {
 		SetupBaseTest(t)
 		defer ResetBaseTest(t)
-		ResetAllResource(t)
+		ResetContext(t)
 
-		model := PrepareTestData(t, 1)[0]
+		model := WriteBaseTest(t, 1)[0]
 		count := model.Delete()
 		if count <= 0 {
-			t.Error("Delete by primary key failed")
+			t.Error("通过主键删除失败")
 		}
 		if model.Read() {
-			t.Error("Record should be deleted")
+			t.Error("记录应该已被删除")
 		}
 	})
 }
 
-// TestModelList 测试列表操作
+// TestModelList 测试列举操作。
 func TestModelList(t *testing.T) {
 	SetupBaseTest(t)
 	defer ResetBaseTest(t)
-	ResetAllResource(t)
+	ResetContext(t)
 
-	models := PrepareTestData(t, 5)
+	models := WriteBaseTest(t, 5)
 	model := NewTestBaseModel()
 
 	// 测试Count
 	t.Run("Count", func(t *testing.T) {
 		count := model.Count()
 		if count != len(models) {
-			t.Errorf("Expected count %d, got %d", len(models), count)
+			t.Errorf("预期计数 %d，实际得到 %d", len(models), count)
 		}
 
 		// 测试带条件的Count
-		cond := Condition("int_val > {0}", 3)
+		cond := Cond("int_val > {0}", 3)
 		count = model.Count(cond)
 		if count != 2 {
-			t.Errorf("Expected count 2 with condition, got %d", count)
+			t.Errorf("预期带条件的计数为 2，实际得到 %d", count)
 		}
 	})
 
@@ -249,19 +251,19 @@ func TestModelList(t *testing.T) {
 		var results []*TestBaseModel
 		count := model.List(&results)
 		if count != len(models) {
-			t.Errorf("Expected list count %d, got %d", len(models), count)
+			t.Errorf("预期列表计数 %d，实际得到 %d", len(models), count)
 		}
 
 		// 测试带条件的List
 		results = nil
-		cond := Condition("int_val > {0}", 3)
+		cond := Cond("int_val > {0}", 3)
 		count = model.List(&results, cond)
 		if count != 2 {
-			t.Errorf("Expected 2 records matching condition, got %d", count)
+			t.Errorf("预期匹配条件的记录有 2 条，实际得到 %d 条", count)
 		}
 		for _, result := range results {
 			if result.IntVal <= 3 {
-				t.Errorf("Expected IntVal > 3, got %d", result.IntVal)
+				t.Errorf("预期 IntVal > 3，实际得到 %d", result.IntVal)
 			}
 		}
 	})
@@ -270,19 +272,19 @@ func TestModelList(t *testing.T) {
 		var results []*TestBaseModel
 		count := model.List(&results)
 		if count != len(models) {
-			t.Errorf("Expected list count %d, got %d", len(models), count)
+			t.Errorf("预期列表计数 %d，实际得到 %d", len(models), count)
 		}
 
 		// 测试带条件的List
 		results = nil
-		cond := Condition(orm.NewCondition().And("int_val__in", []int{1, 2}))
+		cond := Cond(orm.NewCondition().And("int_val__in", []int{1, 2}))
 		count = model.List(&results, cond)
 		if count != 2 {
-			t.Errorf("Expected 2 records matching condition, got %d", count)
+			t.Errorf("预期匹配条件的记录有 2 条，实际得到 %d 条", count)
 		}
 		for _, result := range results {
 			if result.IntVal > 2 {
-				t.Errorf("Expected IntVal <= 2, got %d", result.IntVal)
+				t.Errorf("预期 IntVal <= 2，实际得到 %d", result.IntVal)
 			}
 		}
 	})
@@ -291,7 +293,7 @@ func TestModelList(t *testing.T) {
 	t.Run("Max", func(t *testing.T) {
 		max := model.Max("int_val")
 		if max != 5 {
-			t.Errorf("Expected max value 5, got %d", max)
+			t.Errorf("预期最大值为 5，实际得到 %d", max)
 		}
 	})
 
@@ -299,7 +301,7 @@ func TestModelList(t *testing.T) {
 	t.Run("Min", func(t *testing.T) {
 		min := model.Min("int_val")
 		if min != 1 {
-			t.Errorf("Expected min value 1, got %d", min)
+			t.Errorf("预期最小值为 1，实际得到 %d", min)
 		}
 	})
 
@@ -307,32 +309,32 @@ func TestModelList(t *testing.T) {
 	t.Run("Clear", func(t *testing.T) {
 		count := model.Clear()
 		if count != len(models) {
-			t.Errorf("Expected clear count %d, got %d", len(models), count)
+			t.Errorf("预期清除计数 %d，实际得到 %d", len(models), count)
 		}
 		if model.Count() != 0 {
-			t.Error("Table should be empty after clear")
+			t.Error("清除后表应该为空")
 		}
 
 		// 重新准备测试数据
-		models = PrepareTestData(t, 5)
+		models = WriteBaseTest(t, 5)
 
 		// 测试带条件的Clear
-		cond := Condition("int_val > {0}", 3)
+		cond := Cond("int_val > {0}", 3)
 		count = model.Clear(cond)
 		if count != 2 {
-			t.Errorf("Expected to clear 2 records with condition, got %d", count)
+			t.Errorf("预期带条件清除 2 条记录，实际清除了 %d 条", count)
 		}
 		if model.Count() != 3 {
-			t.Error("Should have 3 records remaining after conditional clear")
+			t.Error("条件清除后应该剩余 3 条记录")
 		}
 	})
 }
 
-// TestModelUtility 测试工具方法
+// TestModelUtility 测试工具方法。
 func TestModelUtility(t *testing.T) {
 	SetupBaseTest(t)
 	defer ResetBaseTest(t)
-	ResetAllResource(t)
+	ResetContext(t)
 
 	model := NewTestBaseModel()
 	model.ID = 1
@@ -345,19 +347,19 @@ func TestModelUtility(t *testing.T) {
 	t.Run("Clone", func(t *testing.T) {
 		cloned := model.Clone().(*TestBaseModel)
 		if cloned.ID != model.ID {
-			t.Error("Cloned ID mismatch")
+			t.Error("克隆的 ID 不匹配")
 		}
 		if cloned.IntVal != model.IntVal {
-			t.Error("Cloned IntVal mismatch")
+			t.Error("克隆的 IntVal 不匹配")
 		}
 		if cloned.FloatVal != model.FloatVal {
-			t.Error("Cloned FloatVal mismatch")
+			t.Error("克隆的 FloatVal 不匹配")
 		}
 		if cloned.StringVal != model.StringVal {
-			t.Error("Cloned StringVal mismatch")
+			t.Error("克隆的 StringVal 不匹配")
 		}
 		if cloned.BoolVal != model.BoolVal {
-			t.Error("Cloned BoolVal mismatch")
+			t.Error("克隆的 BoolVal 不匹配")
 		}
 	})
 
@@ -366,7 +368,7 @@ func TestModelUtility(t *testing.T) {
 		// 测试相同对象比较
 		t.Run("SameObject", func(t *testing.T) {
 			if !model.Equals(model) {
-				t.Error("Same object should be equal to itself")
+				t.Error("相同对象应该等于自身")
 			}
 		})
 
@@ -380,7 +382,7 @@ func TestModelUtility(t *testing.T) {
 			model2.BoolVal = model.BoolVal
 
 			if !model.Equals(model2) {
-				t.Errorf("Objects with same values should be equal:\nmodel1=%#v\nmodel2=%#v", model, model2)
+				t.Errorf("具有相同值的对象应该相等:\nmodel1=%#v\nmodel2=%#v", model, model2)
 			}
 		})
 
@@ -394,14 +396,14 @@ func TestModelUtility(t *testing.T) {
 			model2.BoolVal = !model.BoolVal
 
 			if model.Equals(model2) {
-				t.Errorf("Objects with different values should not be equal:\nmodel1=%#v\nmodel2=%#v", model, model2)
+				t.Errorf("具有不同值的对象不应该相等:\nmodel1=%#v\nmodel2=%#v", model, model2)
 			}
 		})
 
 		// 测试nil对象
 		t.Run("NilObject", func(t *testing.T) {
 			if model.Equals(nil) {
-				t.Error("Non-nil object should not equal to nil")
+				t.Error("非空对象不应该等于 nil")
 			}
 		})
 
@@ -419,7 +421,7 @@ func TestModelUtility(t *testing.T) {
 			differentModel.Value = "test"
 
 			if model.Equals(differentModel) {
-				t.Error("Objects of different model types should not be equal")
+				t.Error("不同类型的对象不应该相等")
 			}
 		})
 
@@ -432,7 +434,7 @@ func TestModelUtility(t *testing.T) {
 			model2.StringVal = ""
 			model3.StringVal = ""
 			if !model2.Equals(model3) {
-				t.Errorf("Objects with empty strings should be equal:\nmodel1=%#v\nmodel2=%#v", model2, model3)
+				t.Errorf("具有空字符串的对象应该相等:\nmodel1=%#v\nmodel2=%#v", model2, model3)
 			}
 
 			// 测试零值
@@ -441,7 +443,7 @@ func TestModelUtility(t *testing.T) {
 			model2.FloatVal = 0.0
 			model3.FloatVal = 0.0
 			if !model2.Equals(model3) {
-				t.Errorf("Objects with zero values should be equal:\nmodel1=%#v\nmodel2=%#v", model2, model3)
+				t.Errorf("具有零值的对象应该相等:\nmodel1=%#v\nmodel2=%#v", model2, model3)
 			}
 
 			// 测试最大值
@@ -450,7 +452,7 @@ func TestModelUtility(t *testing.T) {
 			model2.FloatVal = math.MaxFloat64
 			model3.FloatVal = math.MaxFloat64
 			if !model2.Equals(model3) {
-				t.Errorf("Objects with max values should be equal:\nmodel1=%#v\nmodel2=%#v", model2, model3)
+				t.Errorf("具有最大值的对象应该相等:\nmodel1=%#v\nmodel2=%#v", model2, model3)
 			}
 		})
 	})
@@ -459,22 +461,22 @@ func TestModelUtility(t *testing.T) {
 	t.Run("Json", func(t *testing.T) {
 		json := model.Json()
 		if json == "" {
-			t.Error("Json serialization failed")
+			t.Error("JSON 序列化失败")
 		}
 		if !strings.Contains(json, fmt.Sprintf(`"ID":%d`, model.ID)) {
-			t.Error("JSON should contain ID field")
+			t.Error("JSON 应该包含 ID 字段")
 		}
 		if !strings.Contains(json, fmt.Sprintf(`"IntVal":%d`, model.IntVal)) {
-			t.Error("JSON should contain IntVal field")
+			t.Error("JSON 应该包含 IntVal 字段")
 		}
 		if !strings.Contains(json, fmt.Sprintf(`"FloatVal":%g`, model.FloatVal)) {
-			t.Error("JSON should contain FloatVal field")
+			t.Error("JSON 应该包含 FloatVal 字段")
 		}
 		if !strings.Contains(json, fmt.Sprintf(`"StringVal":"%s"`, model.StringVal)) {
-			t.Error("JSON should contain StringVal field")
+			t.Error("JSON 应该包含 StringVal 字段")
 		}
 		if !strings.Contains(json, fmt.Sprintf(`"BoolVal":%v`, model.BoolVal)) {
-			t.Error("JSON should contain BoolVal field")
+			t.Error("JSON 应该包含 BoolVal 字段")
 		}
 	})
 
@@ -482,41 +484,41 @@ func TestModelUtility(t *testing.T) {
 	t.Run("IsValid", func(t *testing.T) {
 		model2 := NewTestBaseModel()
 		if model2.IsValid() {
-			t.Error("New model should be invalid by default")
+			t.Error("新模型默认应该是无效的")
 		}
 		model2.IsValid(false)
 		if model2.IsValid() {
-			t.Error("Model should be invalid after setting valid to false")
+			t.Error("设置为无效后模型应该是无效的")
 		}
 		model2.IsValid(true)
 		if !model2.IsValid() {
-			t.Error("Model should be valid after setting valid to true")
+			t.Error("设置为有效后模型应该是有效的")
 		}
 	})
 }
 
-// TestModelMatchs 测试匹配操作
+// TestModelMatchs 测试匹配操作。
 func TestModelMatchs(t *testing.T) {
 	SetupBaseTest(t)
 	defer ResetBaseTest(t)
-	ResetAllResource(t)
+	ResetContext(t)
 
-	models := PrepareTestData(t, 5)
+	models := WriteBaseTest(t, 5)
 
 	// 测试简单条件匹配
-	t.Run("SimpleConditions", func(t *testing.T) {
+	t.Run("Simple", func(t *testing.T) {
 		// 等于条件
 		t.Run("Equals", func(t *testing.T) {
-			cond := Condition("int_val == {0}", 3)
+			cond := Cond("int_val == {0}", 3)
 			matches := models[2].Matchs(cond)
 			if !matches {
-				t.Error("Expected model with int_val=3 to match condition")
+				t.Error("预期 int_val=3 的模型应该匹配条件")
 			}
 		})
 
 		// 大于条件
-		t.Run("GreaterThan", func(t *testing.T) {
-			cond := Condition("int_val > {0}", 3)
+		t.Run("Greater", func(t *testing.T) {
+			cond := Cond("int_val > {0}", 3)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
@@ -524,13 +526,13 @@ func TestModelMatchs(t *testing.T) {
 				}
 			}
 			if matchCount != 2 {
-				t.Errorf("Expected 2 models with int_val>3, got %d", matchCount)
+				t.Errorf("预期有 2 个模型的 int_val>3，实际得到 %d 个", matchCount)
 			}
 		})
 
 		// 小于条件
-		t.Run("LessThan", func(t *testing.T) {
-			cond := Condition("int_val < {0}", 3)
+		t.Run("Less", func(t *testing.T) {
+			cond := Cond("int_val < {0}", 3)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
@@ -538,22 +540,22 @@ func TestModelMatchs(t *testing.T) {
 				}
 			}
 			if matchCount != 2 {
-				t.Errorf("Expected 2 models with int_val<3, got %d", matchCount)
+				t.Errorf("预期有 2 个模型的 int_val<3，实际得到 %d 个", matchCount)
 			}
 		})
 
 		// 字符串匹配
-		t.Run("StringMatch", func(t *testing.T) {
-			cond := Condition("string_val == {0}", "test_string_3")
+		t.Run("String", func(t *testing.T) {
+			cond := Cond("string_val == {0}", "test_string_3")
 			matches := models[2].Matchs(cond)
 			if !matches {
-				t.Error("Expected model with string_val='test_string_3' to match condition")
+				t.Error("预期 string_val='test_string_3' 的模型应该匹配条件")
 			}
 		})
 
 		// 布尔值匹配
-		t.Run("BooleanMatch", func(t *testing.T) {
-			cond := Condition("bool_val == {0}", true)
+		t.Run("Boolean", func(t *testing.T) {
+			cond := Cond("bool_val == {0}", true)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
@@ -561,72 +563,72 @@ func TestModelMatchs(t *testing.T) {
 				}
 			}
 			if matchCount != 2 {
-				t.Errorf("Expected 2 models with bool_val=true, got %d", matchCount)
+				t.Errorf("预期有 2 个模型的 bool_val=true，实际得到 %d 个", matchCount)
 			}
 		})
 	})
 
 	// 测试复合条件匹配
-	t.Run("CompoundConditions", func(t *testing.T) {
+	t.Run("Compound", func(t *testing.T) {
 		// AND 条件
-		t.Run("AndCondition", func(t *testing.T) {
+		t.Run("And", func(t *testing.T) {
 			// 测试数据中，IntVal > 2 的有 3,4,5，bool_val 为 true 的有 2,4
 			// 所以 IntVal > 2 && bool_val == true 的只有 4
-			cond := Condition("int_val > {0} && bool_val == {1}", 2, true)
+			cond := Cond("int_val > {0} && bool_val == {1}", 2, true)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
 					matchCount++
 					if model.IntVal <= 2 || !model.BoolVal {
-						t.Errorf("Model with int_val=%d and bool_val=%v should not match",
+						t.Errorf("int_val=%d 且 bool_val=%v 的模型不应该匹配",
 							model.IntVal, model.BoolVal)
 					}
 				}
 			}
 			if matchCount != 1 {
-				t.Errorf("Expected 1 model matching AND condition, got %d", matchCount)
+				t.Errorf("预期有 1 个模型匹配 AND 条件，实际得到 %d 个", matchCount)
 			}
 		})
 
 		// OR 条件
-		t.Run("OrCondition", func(t *testing.T) {
+		t.Run("Or", func(t *testing.T) {
 			// 测试数据中，IntVal < 2 的有 1，IntVal > 4 的有 5
-			cond := Condition("int_val < {0} || int_val > {1}", 2, 4)
+			cond := Cond("int_val < {0} || int_val > {1}", 2, 4)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
 					matchCount++
 					if model.IntVal >= 2 && model.IntVal <= 4 {
-						t.Errorf("Model with int_val=%d should not match", model.IntVal)
+						t.Errorf("int_val=%d 的模型不应该匹配", model.IntVal)
 					}
 				}
 			}
 			if matchCount != 2 {
-				t.Errorf("Expected 2 models matching OR condition, got %d", matchCount)
+				t.Errorf("预期有 2 个模型匹配 OR 条件，实际得到 %d 个", matchCount)
 			}
 		})
 
 		// NOT 条件
-		t.Run("NotCondition", func(t *testing.T) {
+		t.Run("Not", func(t *testing.T) {
 			// 测试数据中，!(2 <= IntVal <= 4) 意味着 IntVal < 2 或 IntVal > 4
 			// 所以应该匹配 IntVal = 1 和 IntVal = 5
-			cond := Condition("int_val < {0} || int_val > {1}", 2, 4)
+			cond := Cond("int_val < {0} || int_val > {1}", 2, 4)
 			matchCount := 0
 			for _, model := range models {
 				if model.Matchs(cond) {
 					matchCount++
 					if model.IntVal >= 2 && model.IntVal <= 4 {
-						t.Errorf("Model with int_val=%d should not match", model.IntVal)
+						t.Errorf("int_val=%d 的模型不应该匹配", model.IntVal)
 					}
 				}
 			}
 			if matchCount != 2 {
-				t.Errorf("Expected 2 models matching NOT condition, got %d", matchCount)
+				t.Errorf("预期有 2 个模型匹配 NOT 条件，实际得到 %d 个", matchCount)
 			}
 		})
 
 		// 复杂组合条件
-		t.Run("ComplexCondition", func(t *testing.T) {
+		t.Run("Complex", func(t *testing.T) {
 			// 测试数据：
 			// ID=1: IntVal=1, FloatVal=1.5, StringVal="test_string_1", BoolVal=false
 			// ID=2: IntVal=2, FloatVal=2.5, StringVal="test_string_2", BoolVal=true
@@ -635,7 +637,7 @@ func TestModelMatchs(t *testing.T) {
 			// ID=5: IntVal=5, FloatVal=5.5, StringVal="test_string_5", BoolVal=false
 
 			// 使用更简单的条件组合
-			cond := Condition("int_val == {0} || int_val == {1}", 1, 4)
+			cond := Cond("int_val == {0} || int_val == {1}", 1, 4)
 
 			matchCount := 0
 			expectedMatches := map[int]struct{}{
@@ -645,24 +647,24 @@ func TestModelMatchs(t *testing.T) {
 
 			for _, model := range models {
 				matches := model.Matchs(cond)
-				t.Logf("Model {ID=%d, IntVal=%d}: matches=%v", model.ID, model.IntVal, matches)
+				t.Logf("模型 {ID=%d, IntVal=%d}: 匹配结果=%v", model.ID, model.IntVal, matches)
 
 				if matches {
 					matchCount++
 					if _, ok := expectedMatches[model.IntVal]; !ok {
-						t.Errorf("Unexpected match for model: {ID=%d, IntVal=%d}",
+						t.Errorf("模型意外匹配: {ID=%d, IntVal=%d}",
 							model.ID, model.IntVal)
 					}
 				} else {
 					if _, ok := expectedMatches[model.IntVal]; ok {
-						t.Errorf("Expected match not found for model: {ID=%d, IntVal=%d}",
+						t.Errorf("预期匹配的模型未匹配: {ID=%d, IntVal=%d}",
 							model.ID, model.IntVal)
 					}
 				}
 			}
 
 			if matchCount != 2 {
-				t.Errorf("Expected exactly 2 models matching complex condition, got %d", matchCount)
+				t.Errorf("预期恰好有 2 个模型匹配复杂条件，实际得到 %d 个", matchCount)
 			}
 		})
 	})

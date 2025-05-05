@@ -5,254 +5,360 @@
 package XOrm
 
 import (
-	"strings"
+	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/eframework-org/GO.UTIL/XObject"
 	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestContextCache 测试缓存操作
+// TestContextCache 测试缓存操作。
 func TestContextCache(t *testing.T) {
-	tests := []struct {
-		name      string
-		modelArgs []bool // [cache, persist, writable]
-		checkFunc func(t *testing.T)
-	}{
-		{
-			name:      "GlobalMemoryCacheOperations",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				model.ID = 1
-				model.StringVal = "test_global"
+	defer ResetContext(t)
 
-				// 测试全局内存缓存
-				gobj := setGlobalCache(model)
-				if gobj == nil {
-					t.Error("Global object should not be nil after cache")
-				}
-
-				// 验证缓存的数据
-				gcache := getGlobalCache(model)
-				if gcache == nil {
-					t.Error("Global memory should not be nil")
-				}
-
-				value, exist := gcache.Load(model.DataUnique())
-				if !exist {
-					t.Error("Cached object should exist in global memory")
-				}
-				if value.(*globalObject).ptr != model {
-					t.Error("Cached object should reference the original model")
-				}
-
-				// 测试重复缓存相同对象
-				gobj2 := setGlobalCache(model)
-				if gobj2 != gobj {
-					t.Error("Caching same object should return same global object")
-				}
-
-				// 测试缓存不同对象但相同标识
-				model2 := NewTestBaseModel()
-				model2.ID = 1
-				model2.StringVal = "test_global_2"
-				gobj3 := setGlobalCache(model2)
-				if gobj3 != gobj {
-					t.Error("Caching object with same unique ID should update existing object")
-				}
-				if gobj3.ptr != model2 {
-					t.Error("Cached object should be updated to new model")
-				}
-			},
-		},
-		{
-			name:      "SessionMemoryCacheOperations",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				model.ID = 2
-				model.StringVal = "test_session"
-				meta := getModelInfo(model)
-
-				// 测试会话内存缓存
-				sobj := setSessionCache(gid, model, meta)
-				if sobj == nil {
-					t.Error("Session object should not be nil after cache")
-				}
-
-				// 验证缓存的数据
-				scache := getSessionCache(gid, model)
-				if scache == nil {
-					t.Error("Session memory should not be nil")
-				}
-
-				value, exist := scache.Load(model.DataUnique())
-				if !exist {
-					t.Error("Cached object should exist in session memory")
-				}
-				if value.(*sessionObject).ptr != model {
-					t.Error("Cached object should reference the original model")
-				}
-				if value.(*sessionObject).model != meta {
-					t.Error("Cached object should have correct model info")
-				}
-
-				// 验证原始数据的克隆
-				if value.(*sessionObject).raw.Json() != model.Json() {
-					t.Error("Raw object should be a clone of original model")
-				}
-
-				// 测试重复缓存相同对象
-				sobj2 := setSessionCache(gid, model, meta)
-				if sobj2 != sobj {
-					t.Error("Caching same object should return same session object")
-				}
-
-				// 测试缓存不同对象但相同标识
-				model2 := NewTestBaseModel()
-				model2.ID = 2
-				model2.StringVal = "test_session_2"
-				sobj3 := setSessionCache(gid, model2, meta)
-				if sobj3 != sobj {
-					t.Error("Caching object with same unique ID should update existing object")
-				}
-				if sobj3.ptr != model2 {
-					t.Error("Cached object should be updated to new model")
-				}
-			},
-		},
-		{
-			name:      "SessionObjectReadWriteFlags",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				model.ID = 3
-				meta := getModelInfo(model)
-
-				sobj := setSessionCache(gid, model, meta)
-
-				// 测试默认状态
-				if sobj.setWritable() != 0 {
-					t.Error("Initial read/write flag should be 0")
-				}
-
-				// 测试设置只读标记
-				sobj.setWritable(false, true)
-				if sobj.setWritable() != 1 {
-					t.Error("Read-only flag should be 1")
-				}
-
-				// 测试设置读写标记
-				sobj.setWritable(true, true)
-				if sobj.setWritable() != 2 {
-					t.Error("Read-write flag should be 2")
-				}
-
-				// 测试无法从读写降级到只读
-				sobj.setWritable(false, true)
-				if sobj.setWritable() != 2 {
-					t.Error("Cannot downgrade from read-write to read-only")
-				}
-			},
-		},
-		{
-			name:      "GlobalListedStatus",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				meta := getModelInfo(model)
-
-				// 测试初始状态
-				if isGlobalListed(model, meta, false, false) {
-					t.Error("Initial listed status should be false")
-				}
-
-				// 测试标记为已列举
-				isGlobalListed(model, meta, true, false)
-				if !isGlobalListed(model, meta, false, false) {
-					t.Error("Listed status should be true after marking")
-				}
-
-				// 测试重置状态
-				isGlobalListed(model, meta, false, true)
-				if isGlobalListed(model, meta, false, false) {
-					t.Error("Listed status should be false after reset")
-				}
-
-				// 测试非缓存模型
-				meta.Cache = false
-				if isGlobalListed(model, meta, true, false) {
-					t.Error("Non-cached model should always return false")
-				}
-			},
-		},
-		{
-			name:      "SessionListedStatus",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-
-				// 测试初始状态
-				if isSessionListed(gid, model, false, false) {
-					t.Error("Initial listed status should be false")
-				}
-
-				// 测试标记为已列举
-				isSessionListed(gid, model, true, false)
-				if !isSessionListed(gid, model, false, false) {
-					t.Error("Listed status should be true after marking")
-				}
-
-				// 测试重置状态
-				isSessionListed(gid, model, false, true)
-				if isSessionListed(gid, model, false, false) {
-					t.Error("Listed status should be false after reset")
-				}
-			},
-		},
-		{
-			name:      "MemoryDumpFunctionality",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				// 准备测试数据
-				model := NewTestBaseModel()
-				model.ID = 1
-				model.StringVal = "test_dump"
-				setGlobalCache(model)
-
-				// 执行内存转储
-				dump := Dump()
-
-				// 验证转储内容
-				if !strings.Contains(dump, "test_dump") {
-					t.Error("Dump should contain cached object data")
-				}
-				if !strings.Contains(dump, "[Mem]") {
-					t.Error("Dump should contain memory section")
-				}
-				if !strings.Contains(dump, "[List]") {
-					t.Error("Dump should contain list section")
-				}
-				if !strings.Contains(dump, "[Max]") {
-					t.Error("Dump should contain max section")
-				}
-			},
-		},
+	models := []IModel{
+		XObject.New[TestCacheModel1](),
+		XObject.New[TestCacheModel2](),
 	}
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetAllResource(t)
-	PrepareTestData(t, 5)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Cleanup()
-			Register(NewTestBaseModel(), tt.modelArgs[0], tt.modelArgs[1], tt.modelArgs[2])
-			ResetAllResource(t)
+	ResetBaseTest(t)
+	for _, model := range models {
+		Meta(model, true, false)
+	}
 
-			tt.checkFunc(t)
+	t.Run("Pool", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		for i := range 100 {
+			wg.Add(1)
+
+			go func(i int) {
+				defer wg.Done()
+
+				sobj := sessionObjectPool.Get().(*sessionObject)
+				assert.NotNil(t, sobj, "sessionObject 对象不应为 nil。")
+				sobj.reset()
+				assert.Nil(t, sobj.raw, "sessionObject 对象的 raw 字段应为 nil。")
+				assert.Nil(t, sobj.ptr, "sessionObject 对象的 ptr 字段应为 nil。")
+				assert.Equal(t, 0, sobj.write, "sessionObject 对象的 write 字段应为 0。")
+				assert.Equal(t, false, sobj.create, "sessionObject 对象的 create 字段应为 false。")
+				assert.Equal(t, false, sobj.delete, "sessionObject 对象的 delete 字段应为 false。")
+				assert.Nil(t, sobj.clear, "sessionObject 对象的 clear 字段应为 nil。")
+
+				sobj.writable(false)
+				assert.Equal(t, 1, sobj.write, "sessionObject 对象的 writable 字段应为 1。")
+
+				sobj.writable(true)
+				assert.Equal(t, 2, sobj.write, "sessionObject 对象的 writable 字段应为 2。")
+
+				sobj.writable(false)
+				assert.Equal(t, 2, sobj.write, "已被标记为读写的 sessionObject 对象的 writable 字段仍应为 2。")
+
+				sobj.create = true
+				sobj.delete = true
+				sobj.clear = Cond()
+
+				sessionObjectPool.Put(sobj)
+			}(i)
+		}
+		wg.Wait()
+	})
+
+	t.Run("Global", func(t *testing.T) {
+		defer ResetContext(t)
+		ResetContext(t)
+
+		wg := sync.WaitGroup{}
+		for i := range 100 {
+			wg.Add(1)
+
+			go func(i int) {
+				defer wg.Done()
+
+				for _, model := range models {
+					data := model.Clone().(TestCacheModel)
+					data.IDProp(i)
+					setGlobalCache(data)
+					cache := getGlobalCache(model)
+					assert.NotNil(t, cache, "全局缓存应当不为 nil。")
+
+					tmp, ok := cache.Load(data.DataUnique())
+					assert.Equal(t, true, ok, "全局缓存存储的对象应当存在。")
+					gobj := tmp.(IModel)
+					assert.Equal(t, data, gobj, "全局缓存存储的对象应当和创建的实例相等。")
+
+					assert.Equal(t, false, isGlobalListed(model, false), "全局列举标记应当为 false。")
+					assert.Equal(t, true, isGlobalListed(model, true), "全局列举标记应当为 true。")
+				}
+			}(i)
+		}
+		wg.Wait()
+	})
+
+	t.Run("Session", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		for i := range 100 {
+			wg.Add(1)
+
+			go func(i int) {
+				defer wg.Done()
+
+				gid := goid.Get()
+				for _, model := range models {
+					data := model.Clone().(TestCacheModel)
+					data.IDProp(1)
+					setSessionCache(gid, data)
+					cache := getSessionCache(gid, model)
+					assert.NotNil(t, cache, "会话缓存应当不为 nil。")
+
+					tmp, ok := cache.Load(data.DataUnique())
+					assert.Equal(t, true, ok, "会话缓存存储的对象应当存在。")
+					sobj := tmp.(*sessionObject)
+					assert.Equal(t, data, sobj.ptr, "会话缓存存储的对象应当和创建的实例相等。")
+
+					assert.Equal(t, false, isSessionListed(gid, model, false), "会话列举标记应当为 false。")
+					assert.Equal(t, true, isSessionListed(gid, model, true), "会话列举标记应当为 true。")
+				}
+			}(i)
+		}
+		wg.Wait()
+	})
+
+	t.Run("Lock", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		for i := range 100 {
+			wg.Add(1)
+
+			go func(i int) {
+				for _, model := range models {
+					globalLock(model)
+				}
+				wg.Done()
+
+				time.Sleep(time.Second)
+
+				for _, model := range models {
+					globalUnlock(model)
+				}
+			}(i)
+		}
+		wg.Wait()
+
+		for _, model := range models {
+			_, loaded := globalLockMap.Load(model.ModelUnique())
+			assert.Equal(t, true, loaded, "全局锁应当被设置。")
+		}
+
+		for i := range 100 {
+			wg.Add(1)
+
+			go func(i int) {
+				defer wg.Done()
+
+				for _, model := range models {
+					globalWait(fmt.Sprintf("goroutine_%v", i), model)
+				}
+			}(i)
+		}
+		wg.Wait()
+
+		for _, model := range models {
+			_, loaded := globalLockMap.Load(model.ModelUnique())
+			assert.Equal(t, false, loaded, "全局锁应当被取消。")
+		}
+	})
+
+	t.Run("Dump", func(t *testing.T) {
+		ResetContext(t)
+
+		wg := sync.WaitGroup{}
+		for i, model := range models {
+			data := model.Clone().(TestCacheModel)
+			data.IDProp(i)
+			setGlobalCache(data)
+			isGlobalListed(model, true)
+
+			wg0 := sync.WaitGroup{}
+			wg0.Add(1)
+			wg.Add(1)
+			go func(i int, mode IModel) {
+				if i == 0 {
+					defer wg0.Done()
+				}
+				defer wg.Done()
+
+				globalLock(model)
+			}(i, model)
+
+			if i == 0 {
+				Dump(model)
+				assert.Nil(t, getGlobalCache(model), "Dump 指定模型后全局缓存应当为 nil。")
+				assert.Equal(t, false, isGlobalListed(models[0]), "Dump 指定模型后全局列举状态应当为 false。")
+				wg0.Wait()
+			}
+		}
+
+		Dump()
+		assert.Nil(t, getGlobalCache(models[1]), "Dump 所有模型后全局缓存应当为 nil。")
+		assert.Equal(t, false, isGlobalListed(models[1]), "Dump 所有模型后全局列举状态应当为 false。")
+		wg.Wait()
+	})
+
+	t.Run("Print", func(t *testing.T) {
+		defer ResetContext(t)
+		ResetContext(t)
+
+		for i, model := range models {
+			data := model.Clone().(TestCacheModel)
+			data.IDProp(i)
+			setGlobalCache(data)
+			isGlobalListed(model, true)
+			globalLock(model)
+			globalIncreMap.Store(fmt.Sprintf("%v_%v", model.ModelUnique(), "id"), 1000)
+		}
+
+		var ctt = Print()
+		assert.NotNil(t, ctt, "打印缓存信息应当不为 nil。")
+		assert.NotEmpty(t, ctt, "打印缓存信息应当不为空。")
+
+		// 验证输出内容包含所有必要的部分
+		assert.Contains(t, ctt, "[Data]", "输出应包含 Data 章节标记")
+		assert.Contains(t, ctt, "[List]", "输出应包含 List 章节标记")
+		assert.Contains(t, ctt, "[Incre]", "输出应包含 Incre 自增值章节标记")
+		assert.Contains(t, ctt, "[Lock]", "输出应包含 Lock 章节标记")
+
+		// 验证对象部分内容
+		assert.Contains(t, ctt, "testcache_model1_0 = {\"ID\":0}", "输出应包含第一个模型对象")
+		assert.Contains(t, ctt, "testcache_model2_1 = {\"ID\":1}", "输出应包含第二个模型对象")
+
+		// 验证列举部分内容
+		assert.Contains(t, ctt, "testcache_model1 = true", "输出应包含第一个模型的列举状态")
+		assert.Contains(t, ctt, "testcache_model2 = true", "输出应包含第二个模型的列举状态")
+
+		// 验证最大值部分内容
+		assert.Contains(t, ctt, "testcache_model1_id = 1000", "输出应包含第一个模型的最大值信息")
+		assert.Contains(t, ctt, "testcache_model2_id = 1000", "输出应包含第二个模型的最大值信息")
+
+		// 验证锁部分内容
+		assert.Contains(t, ctt, "testcache_model1", "输出应包含第一个模型的锁信息")
+		assert.Contains(t, ctt, "testcache_model2", "输出应包含第二个模型的锁信息")
+	})
+
+	t.Run("Range", func(t *testing.T) {
+		// 准备测试数据
+		testMap := &sync.Map{}
+		for i := range 100000 {
+			testMap.Store(fmt.Sprintf("key_%d", i), i)
+		}
+
+		// 测试基本遍历功能
+		t.Run("Basic", func(t *testing.T) {
+			var count int64
+			concurrentRange(testMap, func(index int, key, value any) bool {
+				atomic.AddInt64(&count, 1)
+				return true
+			})
+			assert.Equal(t, int64(100000), count, "应该遍历所有 100000 个元素")
 		})
+
+		// 测试提前终止遍历
+		t.Run("Break", func(t *testing.T) {
+			var count int64
+			concurrentRange(testMap, func(index int, key, value any) bool {
+				atomic.AddInt64(&count, 1)
+				if count > 50000 {
+					return false
+				}
+				return true
+			})
+			assert.Equal(t, true, count > 50000 && count <= 100000, "应该在遍历多于 50000 个元素后停止")
+		})
+
+		// 测试 chunk 回调函数
+		t.Run("Chunk", func(t *testing.T) {
+			var actualChunk int
+			concurrentRange(testMap, func(index int, key, value any) bool {
+				return true
+			}, func(delta int) {
+				actualChunk += delta
+			})
+			assert.True(t, actualChunk > 0, "chunk 数量应该大于 0")
+			assert.True(t, actualChunk <= runtime.NumCPU(), "chunk 数量不应超过 CPU 核心数")
+		})
+
+		// 测试空Map
+		t.Run("Empty", func(t *testing.T) {
+			emptyMap := &sync.Map{}
+			var count int64
+			concurrentRange(emptyMap, func(index int, key, value any) bool {
+				atomic.AddInt64(&count, 1)
+				return true
+			})
+			assert.Equal(t, int64(0), count, "空Map不应有任何遍历")
+		})
+
+		// 测试 nil
+		t.Run("Nil", func(t *testing.T) {
+			var nilMap *sync.Map = nil
+			var count int64
+			concurrentRange(nilMap, func(index int, key, value any) bool {
+				atomic.AddInt64(&count, 1)
+				return true
+			})
+			assert.Equal(t, int64(0), count, "nil Map不应有任何遍历")
+		})
+	})
+}
+
+// ResetContext 重置会话上下文。
+func ResetContext(t *testing.T) {
+	Dump()
+}
+
+type TestCacheModel interface {
+	IModel
+	IDProp(val ...int) int
+}
+
+type TestCacheModel1 struct {
+	Model[TestCacheModel1] `orm:"-" json:"-"`
+	ID                     int `orm:"column(id);pk"`
+}
+
+func (tm1 *TestCacheModel1) AliasName() string {
+	return "testcache"
+}
+
+func (tm1 *TestCacheModel1) TableName() string {
+	return "model1"
+}
+
+func (tm1 *TestCacheModel1) IDProp(val ...int) int {
+	if len(val) > 0 {
+		tm1.ID = val[0]
 	}
+	return tm1.ID
+}
+
+type TestCacheModel2 struct {
+	Model[TestCacheModel2] `orm:"-" json:"-"`
+	ID                     int `orm:"column(id);pk"`
+}
+
+func (tm2 *TestCacheModel2) AliasName() string {
+	return "testcache"
+}
+
+func (tm2 *TestCacheModel2) TableName() string {
+	return "model2"
+}
+
+func (tm2 *TestCacheModel2) IDProp(val ...int) int {
+	if len(val) > 0 {
+		tm2.ID = val[0]
+	}
+	return tm2.ID
 }

@@ -18,21 +18,42 @@ import (
 //
 // 删除操作是软删除，不会立即从内存中移除数据。被标记删除的数据在读取时会被忽略。
 func Delete[T IModel](model T) {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
-	meta := getModelInfo(model)
+	ctx := getContext(gid)
+	if ctx == nil {
+		XLog.Critical("XOrm.Delete: context was not found: %v", XLog.Caller(1, false))
+		return
+	}
+	meta := getModelMeta(model)
 	if meta == nil {
 		XLog.Critical("XOrm.Delete: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return
 	}
-	if meta.Cache { // 标记全局内存删除
+	if !ctx.writable {
+		XLog.Error("XOrm.Delete: context was not writable: %v", XLog.Caller(1, false))
+		return
+	}
+	if !meta.writable {
+		XLog.Error("XOrm.Delete: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		return
+	}
+
+	model.IsValid(false)
+
+	if meta.cache {
 		gcache := getGlobalCache(model)
 		if gcache != nil {
 			gobj, exist := gcache.Load(model.DataUnique())
 			if exist {
-				gobj.(*globalObject).delete = true
+				gobj.(IModel).IsValid(false)
 			}
 		}
 	}
 
-	setSessionCache(gid, model, meta).delete = true
+	sobj := setSessionCache(gid, model)
+	sobj.delete = true
+	sobj.create = false
+	sobj.clear = nil
 }

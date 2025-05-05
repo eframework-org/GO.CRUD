@@ -2,12 +2,20 @@
 
 ## [0.0.2] - 
 ### 变更
-- 优化缓存数据读取效率（数据分治 & 并发处理）
-- 优化 globalObject、sessionObject、sync.Map 的高频分配（alloc）缓存
+- 优化 XOrm 的缓存数据读取效率（数据分治 & 并发处理）
+- 优化 XOrm 的 globalObject、sessionObject 的高频分配（allocate）缓存，移除了 globalObject 结构体
+- 重构 XOrm 的 Dump 函数的名称为 Print（输出缓存的文本），重构 Dump 函数的实现，用于清除数据模型的缓存数据
+- 重构 XOrm 的 context_index.go 为 context_incre.go，明确了该函数职责
+- 重构 XOrm 的 model_info.go 为 model_meta.go，拓展了 beegoModelInfo 结构体的参数（cache、writable）
+- 重构 XOrm 的 Register 函数为 Meta，移除了 persist 参数，明确了该函数的职责
+- 移除 XOrm 的 Cleanup 函数，模型的注册/注销使用 beego/orm 的 RegisterModel/ResetModelCache 函数，不再进行拓展
+- 重构 XOrm 的 condition 结构体为 Condition，公开了该接口以供业务层使用
+- 重构 XOrm 的 Condition 函数为 Cond，优化了该函数的实现
+- 重构 XOrm 的 contex_commit.go 模块，优化了提交的性能，简化了事务监控的实现
+- 重构了所有 XOrm 模块的单元测试，提高了测试覆盖率及代码质量，新增了若干并发测试
 
 ### 修复
-- 修复高并发环境下潜在的数据读写错误
-- 修复 Clear 接口调用后未清除列举状态导致无法再次被 List 的错误
+- 修复 XOrm 模块在高并发环境下潜在的数据读写错误
 
 ## [0.0.1] - 2025-03-23
 ### 新增

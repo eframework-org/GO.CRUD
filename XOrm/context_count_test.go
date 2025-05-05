@@ -5,99 +5,90 @@
 package XOrm
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestContextCount 测试计数操作
+// TestContextCount 测试计数操作。
 func TestContextCount(t *testing.T) {
+	defer ResetContext(t)
+	defer ResetBaseTest(t)
+
+	model := NewTestBaseModel()
+	ResetBaseTest(t)
+	SetupBaseTest(t)
+
 	tests := []struct {
-		name      string
-		modelArgs []bool // [cache, persist, writable]
-		checkFunc func(t *testing.T)
+		name       string
+		concurrent int
+		arrange    func(chunk int)
 	}{
 		{
-			name:      "CountSimpleInGlobal",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				List(model) //刷新列表
-				clearSessionCache(t)
-
-				if !isGlobalListed(model, getModelInfo(NewTestBaseModel()), false, false) {
-					t.Error("global expected listed")
-				}
-				count := Count(model)
-				if count != 5 {
-					t.Errorf("Count() = %v, want %v", count, 5)
-				}
-				count1 := Count(model, Condition("id > {0}", 1))
-				if count1 != 4 {
-					t.Errorf("Count() = %v, want %v", count1, 4)
-				}
-				count2 := Count(model, Condition("id == {0}", 1))
-				if count2 != 1 {
-					t.Errorf("Count() = %v, want %v", count2, 1)
-				}
-			},
-		},
-		{
-			name:      "CountSimpleInSession",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
+			name:       "Session",
+			concurrent: 10,
+			arrange: func(chunk int) {
 				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) //刷新列表
-				clearGlobalCache(t)
-				if !isSessionListed(gid, model, false, false) {
-					t.Errorf("session expected listed")
-				}
-				count := Count(model)
-				if count != 5 {
-					t.Errorf("Count() = %v, want %v", count, 5)
-				}
-				count1 := Count(model, Condition("id > {0}", 1))
-				if count1 != 4 {
-					t.Errorf("Count() = %v, want %v", count1, 4)
-				}
-				count2 := Count(model, Condition("id == {0}", 1))
-				if count2 != 1 {
-					t.Errorf("Count() = %v, want %v", count2, 1)
+				isSessionListed(gid, model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IsValid(true)
+					setSessionCache(gid, data)
 				}
 			},
 		},
 		{
-			name:      "CountSimpleInDb",
-			modelArgs: []bool{false, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				count := Count(model)
-				if count != 5 {
-					t.Errorf("Count() = %v, want %v", count, 1)
+			name:       "Global",
+			concurrent: 10,
+			arrange: func(chunk int) {
+				isGlobalListed(model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IsValid(true)
+					setGlobalCache(data)
 				}
-				count1 := Count(model, Condition("id > {0}", 1))
-				if count1 != 4 {
-					t.Errorf("Count() = %v, want %v", count1, 4)
-				}
-				count2 := Count(model, Condition("id == {0}", 1))
-				if count2 != 1 {
-					t.Errorf("Count() = %v, want %v", count2, 1)
+			},
+		},
+		{
+			name:       "Database",
+			concurrent: 1,
+			arrange: func(chunk int) {
+				isSessionListed(goid.Get(), model, false)
+				isGlobalListed(model, false)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IsValid(true)
+					data.Write()
 				}
 			},
 		},
 	}
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetAllResource(t)
-	PrepareTestData(t, 5)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Cleanup()
-			Register(NewTestBaseModel(), tt.modelArgs[0], tt.modelArgs[1], tt.modelArgs[2])
-			ResetAllResource(t)
 
-			tt.checkFunc(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			Dump()
+			var wg sync.WaitGroup
+			for i := range test.concurrent {
+				wg.Add(1)
+
+				go func(chunk int) {
+					defer wg.Done()
+
+					gid := goid.Get()
+					ctx := contextPool.Get().(*context)
+					contextMap.Store(gid, ctx)
+					defer contextMap.Delete(gid)
+
+					test.arrange(chunk)
+					assert.Equal(t, 1000, Count(model, Cond("id >= {0} && id <= {1}", chunk*1000+1, chunk*1000+1000)))
+				}(i)
+			}
+			wg.Wait()
 		})
 	}
 }

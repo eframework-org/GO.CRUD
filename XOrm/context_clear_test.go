@@ -5,241 +5,103 @@
 package XOrm
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestContextClear 测试清除操作
+// TestContextClear 测试清除操作。
 func TestContextClear(t *testing.T) {
 	tests := []struct {
-		name      string
-		modelArgs []bool // [cache, persist, writable]
-		needReset bool
-		checkFunc func(t *testing.T)
+		cache    bool
+		writable bool
 	}{
-		{
-			name:      "ClearAllInSessionMemory",
-			modelArgs: []bool{true, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearGlobalCache(t)
-
-				if !isSessionListed(gid, model, false, false) {
-					t.Error("session expected listed")
-				}
-
-				// 清除所有数据
-				Clear(model)
-
-				// 验证会话内存中的数据都被标记为删除
-				scache := getSessionCache(gid, model)
-				if scache != nil {
-					scache.Range(func(key, value any) bool {
-						sobj := value.(*sessionObject)
-						if !sobj.delete && !sobj.clear {
-							t.Errorf("Object %v should be marked as deleted and cleared", key)
-						}
-						return true
-					})
-				}
-
-				// 验证列举结果为空
-				results := List(model)
-				if len(results) != 0 {
-					t.Errorf("List() after clear = %v, want empty list", len(results))
-				}
-			},
-		},
-		{
-			name:      "ClearWithConditionInSessionMemory",
-			modelArgs: []bool{true, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearGlobalCache(t)
-
-				// 清除 ID > 3 的数据
-				Clear(model, Condition("id > {0}", 3))
-
-				// 验证会话内存中的数据部分被标记为删除
-				deletedCount := 0
-				scache := getSessionCache(gid, model)
-				if scache != nil {
-					scache.Range(func(key, value any) bool {
-						sobj := value.(*sessionObject)
-						if sobj.ptr.(*TestBaseModel).ID > 3 {
-							if !sobj.delete && !sobj.clear {
-								t.Errorf("Object %v should be marked as deleted and cleared", key)
-							}
-							deletedCount++
-						} else {
-							if sobj.delete || sobj.clear {
-								t.Errorf("Object %v should not be marked as deleted or cleared", key)
-							}
-						}
-						return true
-					})
-				}
-				if deletedCount != 2 { // ID 4,5 应该被删除
-					t.Errorf("Expected 2 objects to be deleted, got %v", deletedCount)
-				}
-
-				// 验证列举结果
-				results := List(model)
-				if len(results) != 3 { // 应该剩下 ID 1,2,3
-					t.Errorf("List() after conditional clear = %v, want 3", len(results))
-				}
-			},
-		},
-		{
-			name:      "ClearInGlobalMemory",
-			modelArgs: []bool{true, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearSessionCache(t)
-
-				if !isGlobalListed(model, getModelInfo(model), false, false) {
-					t.Error("global expected listed")
-				}
-
-				// 清除所有数据
-				Clear(model)
-
-				// 验证全局内存中的数据都被标记为删除
-				gcache := getGlobalCache(model)
-				if gcache != nil {
-					gcache.Range(func(key, value any) bool {
-						gobj := value.(*globalObject)
-						if !gobj.delete {
-							t.Errorf("Object %v should be marked as deleted", key)
-						}
-						return true
-					})
-				}
-
-				// 验证列举结果为空
-				results := List(model)
-				if len(results) != 0 {
-					t.Errorf("List() after clear = %v, want empty list", len(results))
-				}
-			},
-		},
-		{
-			name:      "ClearWithConditionInGlobalMemory",
-			modelArgs: []bool{true, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearSessionCache(t)
-
-				// 清除 ID <= 2 的数据
-				Clear(model, Condition("id <= {0}", 2))
-
-				// 验证全局内存中的数据部分被标记为删除
-				gcache := getGlobalCache(model)
-				deletedCount := 0
-				if gcache != nil {
-					gcache.Range(func(key, value any) bool {
-						gobj := value.(*globalObject)
-						if gobj.ptr.(*TestBaseModel).ID <= 2 {
-							if !gobj.delete {
-								t.Errorf("Object %v should be marked as deleted", key)
-							}
-							deletedCount++
-						} else {
-							if gobj.delete {
-								t.Errorf("Object %v should not be marked as deleted", key)
-							}
-						}
-						return true
-					})
-				}
-				if deletedCount != 2 { // ID 1,2 应该被删除
-					t.Errorf("Expected 2 objects to be deleted, got %v", deletedCount)
-				}
-
-				// 验证列举结果
-				results := List(model)
-				if len(results) != 3 { // 应该剩下 ID 3,4,5
-					t.Errorf("List() after conditional clear = %v, want 3", len(results))
-				}
-			},
-		},
-		{
-			name:      "ClearWithUnregisteredModel",
-			modelArgs: []bool{true, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				Cleanup()   // 清除注册信息
-
-				// 清除操作应该不会导致panic
-				Clear(model)
-
-				// 重新注册并验证数据未被清除
-				Register(NewTestBaseModel(), true, true, true)
-				results := List(model)
-				if len(results) != 5 {
-					t.Errorf("List() after clear with unregistered model = %v, want 5", len(results))
-				}
-			},
-		},
-		{
-			name:      "ClearWithNonCachedModel",
-			modelArgs: []bool{false, true, true},
-			needReset: false,
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-
-				// 清除所有数据
-				Clear(model)
-
-				// 验证会话内存中的清除标记
-				scache := getSessionCache(gid, model)
-				if scache != nil {
-					found := false
-					scache.Range(func(key, value any) bool {
-						sobj := value.(*sessionObject)
-						if sobj.clear {
-							found = true
-						}
-						return !found
-					})
-					if !found {
-						t.Error("Clear flag should be set in session memory")
-					}
-				}
-			},
-		},
+		{true, true},
+		{true, false},
+		{false, true},
+		{false, false},
 	}
 
-	SetupBaseTest(t)
+	defer ResetContext(t)
 	defer ResetBaseTest(t)
-	ResetAllResource(t)
-	PrepareTestData(t, 5)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Cleanup()
-			Register(NewTestBaseModel(), tt.modelArgs[0], tt.modelArgs[1], tt.modelArgs[2])
-			ResetAllResource(t)
 
-			tt.checkFunc(t)
-			if tt.needReset {
-				ClearBaseTest(t)
-				PrepareTestData(t, 5)
+	model := NewTestBaseModel()
+
+	for _, test := range tests {
+		ResetContext(t)
+		ResetBaseTest(t)
+		SetupBaseTest(t, test.cache, test.writable)
+
+		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
+			gid := goid.Get()
+			ctx := contextPool.Get().(*context)
+			ctx.writable = test.writable
+			contextMap.Store(gid, ctx)
+			defer contextMap.Delete(gid)
+
+			for i := range 1000 {
+				data := NewTestBaseModel()
+				data.ID = i + 1
+				data.IntVal = data.ID
+				data.IsValid(true)
+				setSessionCache(gid, data)
+				if test.cache {
+					setGlobalCache(data)
+				}
 			}
+
+			cond := Cond("int_val >= {0} && int_val <= {1}", 1, 500)
+			Clear(model, cond)
+
+			var scount int
+			var icond, scond *Condition
+
+			if scache := getSessionCache(gid, model); scache != nil {
+				scache.Range(func(key, value any) bool {
+					sobj := value.(*sessionObject)
+					data := sobj.ptr.(*TestBaseModel)
+					if data.IntVal >= 1 && data.IntVal <= 500 && !sobj.ptr.IsValid() {
+						scount++
+					}
+					return true
+				})
+
+				var sobj *sessionObject
+				if tmp, _ := scache.Load(model.DataUnique()); tmp != nil {
+					sobj = tmp.(*sessionObject)
+				}
+
+				if test.writable {
+					icond = cond
+					if sobj != nil {
+						scond = sobj.clear
+					}
+				}
+			}
+			assert.Equal(t, scond, icond, "会话存储的清除条件实例 %v 应当和输入的 %v 实例相等。", scond, icond)
+			ecount := 0
+			if test.writable {
+				ecount = 500
+			}
+			assert.Equal(t, ecount, scount, "会话清除标记的数据应当为 %v 个。", ecount)
+
+			var gcount int
+			if gcache := getGlobalCache(model); gcache != nil {
+				gcache.Range(func(key, value any) bool {
+					data := value.(*TestBaseModel)
+					if data.IntVal >= 1 && data.IntVal <= 500 && !data.IsValid() {
+						gcount++
+					}
+					return true
+				})
+			}
+			ecount = 0
+			if test.writable && test.cache {
+				ecount = 500
+			}
+			assert.Equal(t, ecount, gcount, "全局清除标记的数据应当为 %v 个。", ecount)
 		})
 	}
 }

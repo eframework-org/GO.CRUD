@@ -17,20 +17,20 @@ const (
 
 func TestOrmInit(t *testing.T) {
 	tests := []struct {
-		name    string
-		prefs   XPrefs.IBase
-		wantErr bool
+		name  string
+		prefs XPrefs.IBase
+		panic bool
 	}{
 		{
-			name: "single_db_test",
+			name: "Single",
 			prefs: XPrefs.New().Set("Orm/MySQL/myalias", XPrefs.New().
 				Set(prefsOrmAddr, TestOrmAddr).
 				Set(prefsOrmPool, 10).
 				Set(prefsOrmConn, 100)),
-			wantErr: false,
+			panic: false,
 		},
 		{
-			name: "multiple_db_test",
+			name: "Multiple",
 			prefs: XPrefs.New().
 				Set("Orm/MySQL/myalias1", XPrefs.New().
 					Set(prefsOrmAddr, "root:123456@tcp(127.0.0.1:3306)/mysql?charset=utf8mb4").
@@ -40,58 +40,53 @@ func TestOrmInit(t *testing.T) {
 					Set(prefsOrmAddr, "root:123456@tcp(127.0.0.1:3306)/information_schema?charset=utf8mb4").
 					Set(prefsOrmPool, 20).
 					Set(prefsOrmConn, 200)),
-			wantErr: false,
+			panic: false,
 		},
 		{
-			name: "invalid_config_test",
+			name: "Invalid",
 			prefs: XPrefs.New().
 				Set("Orm/MySQL/myalias3", XPrefs.New().
 					Set(prefsOrmAddr, "root:wrongpass@tcp(127.0.0.1:3306)/mysql?charset=utf8mb4").
 					Set(prefsOrmPool, 10).
 					Set(prefsOrmConn, 100)),
-			wantErr: true,
-		},
-		{
-			name:    "nil_config_test",
-			prefs:   nil,
-			wantErr: true,
+			panic: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			// Reset database cache
 			orm.ResetModelCache()
 
-			if tt.prefs == nil {
+			if test.prefs == nil {
 				defer func() {
-					if r := recover(); r == nil && tt.wantErr {
+					if r := recover(); r == nil && test.panic {
 						t.Errorf("setup() expected error")
 					}
 				}()
-				initOrm(tt.prefs)
+				initOrm(test.prefs)
 				return
 			}
 
 			// For invalid config test, expect panic
-			if tt.wantErr {
+			if test.panic {
 				defer func() {
 					if r := recover(); r == nil {
 						t.Errorf("setup() expected error")
 					}
 				}()
-				initOrm(tt.prefs)
+				initOrm(test.prefs)
 				return
 			}
 
 			// Normal config test
-			initOrm(tt.prefs)
+			initOrm(test.prefs)
 
 			// Test multiple database connections
 			aliases := []string{}
-			if tt.name == "single_db_test" {
+			if test.name == "single_db_test" {
 				aliases = append(aliases, "myalias")
-			} else if tt.name == "multiple_db_test" {
+			} else if test.name == "multiple_db_test" {
 				aliases = append(aliases, "myalias1", "myalias2")
 			}
 

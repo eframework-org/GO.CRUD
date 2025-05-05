@@ -5,15 +5,11 @@
 package XOrm
 
 import (
-	"sync"
+	"fmt"
+	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
-)
-
-var (
-	// globalMaxMap 存储了所有模型的最大值缓存。第一层键为模型唯一标识，值为该模型的列最大值映射；
-	// 第二层键为列名，值为该列的当前最大值。
-	globalMaxMap sync.Map // map[string]map[string]int
+	"github.com/petermattis/goid"
 )
 
 // Incre 获取并自增指定列的最大值。model 参数为要操作的数据模型，必须实现 IModel 接口。
@@ -26,13 +22,26 @@ var (
 // 函数返回自增后的新值，如果列名为空，则返回 0。目标列必须是整数类型，建议在事务中使用以确保一致性。
 // 需要注意的是，缓存的最大值在程序重启后会重置。
 func Incre(model IModel, columnAndDelta ...any) int {
-	var gcache *sync.Map
-	val, _ := globalMaxMap.Load(model.ModelUnique())
-	if val == nil {
-		gcache = &sync.Map{}
-		globalMaxMap.Store(model.ModelUnique(), gcache)
-	} else {
-		gcache = val.(*sync.Map)
+	cacheDumpWait.Wait()
+
+	gid := goid.Get()
+	ctx := getContext(gid)
+	if ctx == nil {
+		XLog.Critical("XOrm.Incre: context was not found: %v", XLog.Caller(1, false))
+		return -1
+	}
+	meta := getModelMeta(model)
+	if meta == nil {
+		XLog.Critical("XOrm.Incre: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
+		return -1
+	}
+	if !ctx.writable {
+		XLog.Error("XOrm.Incre: context was not writable: %v", XLog.Caller(1, false))
+		return -1
+	}
+	if !meta.writable {
+		XLog.Error("XOrm.Incre: model of %v was not writable: %v", model.ModelUnique(), XLog.Caller(1, false))
+		return -1
 	}
 
 	delta := 1
@@ -55,37 +64,29 @@ func Incre(model IModel, columnAndDelta ...any) int {
 		}
 	}
 	if cname == "" {
-		meta := getModelInfo(model)
-		if meta != nil && meta.Fields.Pk != nil {
-			cname = meta.Fields.Pk.Column
+		if meta.fields.pk != nil {
+			cname = meta.fields.pk.column
 		}
 	}
 	if cname == "" {
-		XLog.Error("XOrm.Model.Incre(%v): column was empty.", model.ModelUnique())
+		XLog.Error("XOrm.Incre: column was empty: %v", model.ModelUnique())
 		return 0
 	}
 
-	index, exist := gcache.Load(cname)
-	if !exist {
-		index = model.Max([]string{cname}...)
+	increKey := fmt.Sprintf("%v_%v", model.ModelUnique(), cname)
+	if val, ok := globalIncreMap.Load(increKey); !ok {
+		defer globalIncreMutex.Unlock()
+		globalIncreMutex.Lock()
+		if nval, ok := globalIncreMap.Load(increKey); ok {
+			return int(atomic.AddInt64(nval.(*int64), int64(delta)))
+		} else {
+			index := model.Max([]string{cname}...)
+			index += delta
+			lindex := int64(index)
+			globalIncreMap.Store(increKey, &lindex)
+			return index
+		}
+	} else {
+		return int(atomic.AddInt64(val.(*int64), int64(delta)))
 	}
-	nindex := index.(int) + delta
-	gcache.Store(cname, nindex)
-	return nindex
-}
-
-// Max 获取指定列的最大值。model 参数为要查询的数据模型，必须实现 IModel 接口。
-// column 参数为可选的列名列表，用于指定要查询的列。函数返回指定列的最大值，
-// 如果未找到或发生错误，返回值取决于具体实现。
-func Max(model IModel, column ...string) int {
-	index := model.Max(column...)
-	return index
-}
-
-// Min 获取指定列的最小值。model 参数为要查询的数据模型，必须实现 IModel 接口。
-// column 参数为可选的列名列表，用于指定要查询的列。函数返回指定列的最小值，
-// 如果未找到或发生错误，返回值取决于具体实现。
-func Min(model IModel, column ...string) int {
-	index := model.Min(column...)
-	return index
 }

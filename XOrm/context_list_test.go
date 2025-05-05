@@ -5,220 +5,124 @@
 package XOrm
 
 import (
+	"sync"
 	"testing"
 
-	"github.com/beego/beego/v2/client/orm"
 	"github.com/petermattis/goid"
+	"github.com/stretchr/testify/assert"
 )
 
-// TestContextList 测试列举操作
+// TestContextList 测试列举操作。
 func TestContextList(t *testing.T) {
+	defer ResetContext(t)
+	defer ResetBaseTest(t)
+
+	model := NewTestBaseModel()
+	ResetBaseTest(t)
+	SetupBaseTest(t)
+
 	tests := []struct {
-		name      string
-		modelArgs []bool // [cache, persist, writable]
-		checkFunc func(t *testing.T)
+		name       string
+		concurrent int
+		arrange    func(chunk int)
 	}{
 		{
-			name:      "ListFromGlobalMemory",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
+			name:       "Session", // 会话内存
+			concurrent: 10,        // 会话使用多线程测试
+			arrange: func(chunk int) {
 				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearSessionCache(t)
-				if !isGlobalListed(model, getModelInfo(model), false, false) {
-					t.Error("global expected listed")
-				}
-
-				// 测试无条件列举
-				results := List(model)
-				if len(results) != 5 {
-					t.Errorf("List() length = %v, want %v", len(results), 5)
-				}
-				if !isSessionListed(gid, model, false, false) {
-					t.Error("session expected listed")
-				}
-				clearSessionCache(t) //需再次清除
-				// 测试条件列举
-				results = List(model, Condition("id > {0}", 2))
-				if len(results) != 3 {
-					t.Errorf("List() with condition length = %v, want %v", len(results), 3)
-				}
-
-				results = List(model, true)
-				for _, r := range results {
-					if sobj, exists := getSessionCache(gid, r).Load(r.DataUnique()); exists {
-						if sobj.(*sessionObject).writable != 2 {
-							t.Error("List() with writable flag should mark objects as writable")
-						}
+				isSessionListed(gid, model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IntVal = data.ID
+					data.IsValid(true)
+					sobj := setSessionCache(gid, data)
+					if i%2 == 1 {
+						sobj.ptr.IsValid(false)
 					}
 				}
 			},
 		},
 		{
-			name:      "ListFromSessionMemory",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 刷新列表
-				clearGlobalCache(t)
-				if !isSessionListed(gid, model, false, false) {
-					t.Error("session expected listed")
-				}
+			name:       "Global", // 全局内存
+			concurrent: 1,        // 全局使用单线程测试
+			arrange: func(chunk int) {
+				isGlobalListed(model, true)
+				for i := range 1000 {
+					data := NewTestBaseModel()
+					data.ID = chunk*1000 + i + 1
+					data.IntVal = data.ID
+					data.IsValid(i%2 == 0)
+					setGlobalCache(data)
 
-				// 测试无条件列举
-				results := List(model)
-				if len(results) != 5 {
-					t.Errorf("List() length = %v, want %v", len(results), 5)
-				}
-				clearGlobalCache(t)
-				// 测试条件列举
-				results = List(model, Condition("id > {0}", 2))
-				if len(results) != 3 {
-					t.Errorf("List() with condition length = %v, want %v", len(results), 3)
-				}
-				clearGlobalCache(t)
-				// 测试带删除标记的列举
-				scache := getSessionCache(gid, model)
-				if scache != nil {
-					scache.Range(func(key, value any) bool {
-						if sobj := value.(*sessionObject); sobj != nil {
-							if sobj.ptr.(*TestBaseModel).ID == 1 {
-								sobj.delete = true
-							}
-						}
-						return true
-					})
-				}
-				results = List(model)
-				if len(results) != 4 {
-					t.Errorf("List() after delete length = %v, want %v", len(results), 4)
 				}
 			},
 		},
 		{
-			name:      "ListFromDatabase",
-			modelArgs: []bool{false, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-
-				// 测试无条件列举
-				results := List(model)
-				if len(results) != 5 {
-					t.Errorf("List() length = %v, want %v", len(results), 5)
-				}
-
-				// 测试条件列举
-				results = List(model, Condition("id <= {0}", 3))
-				if len(results) != 3 {
-					t.Errorf("List() with condition length = %v, want %v", len(results), 3)
-				}
-
-				// 验证返回对象的有效性
-				for _, r := range results {
-					if !r.IsValid() {
-						t.Error("List() should return valid objects")
-					}
-				}
-
-				// 使用原生查询原语
-				results = List(model, Condition(orm.NewCondition().And("int_val__in", []int{1, 2})))
-				if len(results) != 2 {
-					t.Errorf("List() with condition length = %v, want %v", len(results), 2)
-				}
-			},
-		},
-		{
-			name:      "ListWithMixedOperations",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				gid := goid.Get()
-				model := NewTestBaseModel()
-				List(model) // 初始加载
-
-				// 在会话内存中修改一个对象
-				results := List(model)
-				if len(results) > 0 {
-					modifiedModel := results[0]
-					modifiedModel.StringVal = "modified"
-					setSessionCache(gid, modifiedModel, getModelInfo(model))
-				}
-
-				// 在全局内存中标记删除另一个对象
-				if len(results) > 1 {
-					deletedModel := results[1]
-					if gobj, exists := getGlobalCache(model).Load(deletedModel.DataUnique()); exists {
-						gobj.(*globalObject).delete = true
-					}
-				}
-
-				// 重新列举并验证结果
-				newResults := List(model)
-				foundModified := false
-				for _, r := range newResults {
-					if r.StringVal == "modified" {
-						foundModified = true
-						break
-					}
-				}
-				if !foundModified {
-					t.Error("List() should return modified object from session memory")
-				}
-				clearSessionCache(t)
-				newResults = List(model)
-				if len(newResults) != 4 {
-					t.Errorf("List() after mixed operations length = %v, want %v from global memory", len(newResults), 4)
-				}
-			},
-		},
-		{
-			name:      "ListWithInvalidModel",
-			modelArgs: []bool{true, true, true},
-			checkFunc: func(t *testing.T) {
-				model := NewTestBaseModel()
-				Cleanup() // 清除注册信息使模型无效
-
-				results := List(model)
-				if len(results) != 0 {
-					t.Errorf("List() with invalid model length = %v, want %v", len(results), 0)
+			name:       "Database", // 持久化层
+			concurrent: 1,          // 持久化层使用单线程测试
+			arrange: func(chunk int) {
+				for i := range 500 {
+					data := NewTestBaseModel()
+					data.ID = chunk*500 + i + 1
+					data.IntVal = data.ID
+					data.IsValid(true)
+					data.Write()
 				}
 			},
 		},
 	}
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetAllResource(t)
-	PrepareTestData(t, 5)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Cleanup()
-			Register(NewTestBaseModel(), tt.modelArgs[0], tt.modelArgs[1], tt.modelArgs[2])
-			ResetAllResource(t)
 
-			tt.checkFunc(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ResetContext(t)
+
+			var wg sync.WaitGroup
+			for i := range test.concurrent {
+				wg.Add(1)
+
+				go func(chunk int) {
+					defer wg.Done()
+
+					gid := goid.Get()
+					ctx := contextPool.Get().(*context)
+					contextMap.Store(gid, ctx)
+					defer contextMap.Delete(gid)
+
+					test.arrange(chunk)
+					var datas []*TestBaseModel
+
+					{
+						// 条件列举数据
+						ndatas := List(model, Cond("int_val >= {0} && int_val <= {1}", chunk*1000+1, chunk*1000+1000))
+						assert.Equal(t, 500, len(ndatas), "条件列举的数据应当为 500 个。")
+						datas = append(datas, ndatas...)
+
+						ndatas = List(model, Cond("int_val < {0}", 0))
+						assert.Equal(t, 0, len(ndatas), "条件列举不存在的数据应当为 0 个。")
+					}
+
+					{
+						// 全量列举数据
+						ndatas := List(model)
+						assert.Equal(t, 500, len(ndatas), "全量列举的数据应当为 500 个。")
+						datas = append(datas, ndatas...)
+
+						assert.Equal(t, true, isGlobalListed(model), "全量列举后会话的列举状态标识应当为 true。")
+						assert.Equal(t, true, isGlobalListed(model), "全量列举后全局的列举状态标识应当为 true。")
+					}
+
+					for _, data := range datas {
+						var sobj *sessionObject
+						if tmp, _ := getSessionCache(gid, model).Load(data.DataUnique()); tmp != nil {
+							sobj = tmp.(*sessionObject)
+						}
+						assert.Equal(t, data.IsValid(), sobj != nil && data == sobj.ptr, "有效的数据应当被会话监控，且实例指针相等。")
+					}
+				}(i)
+			}
+			wg.Wait()
 		})
-	}
-}
-
-// 清理全局缓存
-func clearGlobalCache(t *testing.T) {
-	var model = NewTestBaseModel()
-	globalCacheMap.Delete(model.ModelUnique()) // release global memory
-	globalListMap.Delete(model.ModelUnique())  // release global memory
-
-	if isGlobalListed(model, getModelInfo(model), false, false) {
-		t.Error("global expected not listed")
-	}
-}
-
-// 清理绘画缓存
-func clearSessionCache(t *testing.T) {
-	gid := goid.Get()
-	sessionCacheMap.Delete(gid) // release memory
-	sessionListMap.Delete(gid)  // release memory
-	var model = NewTestBaseModel()
-	if isSessionListed(gid, model, false, false) {
-		t.Error("session expected not listed")
 	}
 }

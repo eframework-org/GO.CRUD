@@ -37,7 +37,23 @@ func (ctx *context) reset() {
 	ctx.writable = false
 }
 
-// Watch 开始监控数据库操作。接受可选的读写模式标志 writable，默认为 true（读写模式），
+// getContext 根据 goroutine ID 获取上下文实例。
+func getContext(gid ...int64) *context {
+	var ggid int64 = 0
+	if len(gid) > 0 {
+		ggid = gid[0]
+	} else {
+		ggid = goid.Get()
+	}
+	var ctx *context
+	value, _ := contextMap.Load(ggid)
+	if value != nil {
+		ctx = value.(*context)
+	}
+	return ctx
+}
+
+// Watch 开始 CRUD 操作监控。接受可选的读写模式标志 writable，默认为 true（读写模式），
 // 设为 false 则为只读模式。函数获取当前 goroutine ID，生成新的会话 ID，从对象池获取
 // 上下文实例，并初始化上下文（记录开始时间和设置读写模式）。最后将上下文存储到全局映射，
 // 并返回新分配的会话 ID。
@@ -48,6 +64,8 @@ func (ctx *context) reset() {
 //	sid := Watch(false)   // 开始只读监控
 //	defer Defer()         // 结束监控
 func Watch(writable ...bool) int {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
 	sid := int(atomic.AddInt64(&contextID, 1))
 	ctx := contextPool.Get().(*context)
@@ -62,13 +80,15 @@ func Watch(writable ...bool) int {
 	return sid
 }
 
-// Defer 结束数据库操作监控。函数获取当前 goroutine ID 并检索对应的上下文实例。
+// Defer 结束 CRUD 操作监控。函数获取当前 goroutine ID 并检索对应的上下文实例。
 // 如果是读写操作，会创建新的管道批次，遍历会话内存中的对象（处理新建、删除和修改的数据），
-// 同步数据到全局内存，并将变更放入管道进行异步处理。最后清理资源，记录性能指标（总耗时、
-// 管道耗时、逻辑耗时），删除上下文映射，重置并回收上下文实例。
+// 同步数据到全局内存，并将变更放入管道进行异步处理。
+// 最后清理资源，记录性能指标（总耗时、管道耗时、逻辑耗时），删除上下文映射，重置并回收上下文实例。
 //
 // 此函数应通过 defer 调用，确保每个 Watch 都有对应的 Defer。读写操作会触发数据同步。
 func Defer() {
+	cacheDumpWait.Wait()
+
 	gid := goid.Get()
 	if val, _ := contextMap.LoadAndDelete(gid); val == nil {
 		XLog.Error("XOrm.Defer: context was not found.")
@@ -88,20 +108,63 @@ func Defer() {
 			contextPool.Put(ctx)
 		}()
 
-		// 对比内容并且写入
-		tmp, _ := sessionCacheMap.LoadAndDelete(gid)
-		if tmp != nil {
-			scache := tmp.(*sync.Map)
-			if ctx.writable {
-				batch := commitBatchPool.Get().(*commitBatch)
-				tag := XLog.Tag() // 和会话线程保持一致的日志标签
-				if tag != nil {
-					batch.tag = tag.Clone()
-				} else {
-					batch.tag = tag
+		var batch *commitBatch
+		var scache *sync.Map
+		if tmp, _ := sessionCacheMap.LoadAndDelete(gid); tmp != nil {
+			scache = tmp.(*sync.Map)
+		}
+		if ctx.writable && scache != nil {
+			batch = commitBatchPool.Get().(*commitBatch)
+			tag := XLog.Tag() // 和会话线程保持一致的日志标签
+			if tag != nil {
+				batch.tag = tag.Clone()
+			} else {
+				batch.tag = tag
+			}
+			batch.time = XTime.GetMicrosecond()
+			batch.posthandler = func(batch *commitBatch, sobj *sessionObject) {
+				obj := sobj.raw
+				if sobj.delete || sobj.clear != nil {
+					meta := getModelMeta(obj)
+					if meta.cache {
+						gcache := getGlobalCache(obj)
+						if gcache != nil {
+							if sobj.delete {
+								key := obj.DataUnique()
+								gobj, exist := gcache.Load(key)
+								if exist {
+									ggobj := gobj.(IModel)
+									if !ggobj.IsValid() {
+										gcache.Delete(key) // 同步被删除的数据至全局内存
+									} else {
+										// 因延迟写入，有可能该数据又被标记为写入（被新数据覆盖）
+									}
+								}
+							} else {
+								var deleteKeys []string
+								gcache.Range(func(key, value any) bool {
+									gobj := value.(IModel)
+									if !gobj.IsValid() {
+										deleteKeys = append(deleteKeys, key.(string))
+									}
+									return true
+								})
+								if deleteKeys != nil && len(deleteKeys) > 0 {
+									for _, key := range deleteKeys {
+										gcache.Delete(key) // 同步被删除的数据至全局内存
+									}
+								}
+							}
+						}
+					}
+					globalUnlock(obj) // 解锁数据表
 				}
-				batch.time = XTime.GetMicrosecond()
-				var batchChunks [][][]*commitObject
+				sobj.reset()
+				sessionObjectPool.Put(sobj) // 回收会话内存
+			}
+
+			if scache != nil {
+				var batchChunks [][][]*sessionObject
 				concurrentRange(scache, func(index1 int, key1, value1 any) bool {
 					watch := value1.(*sync.Map)
 					if watch != nil {
@@ -110,100 +173,76 @@ func Defer() {
 							if sobj == nil {
 								return true
 							}
-							if sobj.model.Writable { // 不处理全局只读数据
-								modify := false
+							meta := getModelMeta(sobj.ptr)
+							if meta.writable { // 不处理全局只读数据
+								update := false
 								if sobj.create { // 新的数据
 									sobj.ptr.OnEncode() // encode for writing object
-								} else if sobj.delete || sobj.clear { // 标记为删除或清除的数据
-								} else if sobj.setWritable() == 1 { // 只读数据，不对比，不写入
+								} else if !sobj.ptr.IsValid() { // 标记为删除或无效的数据
+								} else if sobj.writable() == 1 { // 只读数据，不对比，不写入
 									return true
 								} else { // 需要对比的数据
 									sobj.ptr.OnEncode() // encode for comparing and writing object
-									modify = sobj.ptr.Equals(sobj.raw)
+									update = !sobj.ptr.Equals(sobj.raw)
 								}
-								if sobj.create || sobj.delete || sobj.clear || !modify {
-									if (sobj.create || !modify) && sobj.model.Cache {
+								if update || sobj.create || sobj.delete || sobj.clear != nil {
+									if (update || sobj.create) && meta.cache {
 										// 同步被修改的数据至全局内存，Clear 和 Delete 的内存将在 pipe 中被移除（避免脏数据）
 										gcache := getGlobalCache(sobj.ptr)
 										if gcache != nil {
 											gkey := sobj.ptr.DataUnique()
-											gobj, _ := gcache.Load(gkey)
-											if gobj != nil {
-												gobj.(*globalObject).ptr = sobj.ptr.Clone() // 拷贝内存
+											if _, loaded := gcache.Load(gkey); loaded {
+												gcache.Store(gkey, sobj.ptr.Clone()) // 拷贝内存
 											}
 										}
 									}
-
-									pobj := commitObjectPool.Get().(*commitObject)
-									pobj.raw = sobj.ptr.Clone() // 使用备份的数据写入
-									pobj.create = sobj.create
-									pobj.delete = sobj.delete
-									pobj.clear = sobj.clear
-									pobj.modify = !modify
-									pobj.cond = sobj.cond
-									pobj.meta = sobj.model
-									batchChunks[index1][index2] = append(batchChunks[index1][index2], pobj)
-									if pobj.delete && !(sobj.model.Cache && !sobj.model.Persist) {
+									if sobj.delete || sobj.clear != nil {
 										// 因提交 database 是异步的，故加锁，避免 XOrm.List 或 XOrm.Read 脏数据（已被标记删除，但又被读取），需要在 XOrm.List 和 XOrm.Read 中判断 globalWait。
-										globalLock(pobj.raw)
+										globalLock(sobj.ptr)
 									}
+
+									batchChunks[index1][index2] = append(batchChunks[index1][index2], sobj)
 								}
 							}
-							sobj.reset()
-							sessionObjectPool.Put(sobj) // 回收会话内存
 							return true
-						}, func(worker2 int) { batchChunks[index1] = make([][]*commitObject, worker2) })
-
-						watch.Clear()          // 清除会话内存
-						syncMapPool.Put(watch) // 回收会话内存
+						}, func(worker2 int) { batchChunks[index1] = make([][]*sessionObject, worker2) })
 					}
 					return true
-				}, func(worker1 int) { batchChunks = make([][][]*commitObject, worker1) })
+				}, func(worker1 int) { batchChunks = make([][][]*sessionObject, worker1) })
 
 				for _, chunk := range batchChunks {
 					for _, objs := range chunk {
 						if len(objs) > 0 {
-							batch.objs = append(batch.objs, objs...)
+							batch.objects = append(batch.objects, objs...)
 							commitCount++
 						}
 					}
 				}
-
-				if len(batch.objs) > 0 {
-					commit := getCommitBatch(gid)
-					if commit == nil {
-						XLog.Error("XOrm.Defer: commit batch has been closed.")
-					} else {
-						select {
-						case commit <- batch:
-							atomic.AddInt64(&sharedCommitMetrics.wait, 1)
-						default:
-							XLog.Error("XOrm.Defer: too many data to commit.")
-						}
-					}
-				}
-				commitCost = XTime.GetMicrosecond() - batch.time
-			} else {
-				scache.Range(func(key, value any) bool {
-					watch := value.(*sync.Map)
-					if watch != nil {
-						watch.Range(func(key, value any) bool {
-							sobj := value.(*sessionObject)
-							if sobj != nil {
-								sobj.reset()
-								sessionObjectPool.Put(sobj) // 回收会话内存
-							}
-							return true
-						})
-						watch.Clear()          // 清除会话内存
-						syncMapPool.Put(watch) // 回收会话内存
-					}
-					return true
-				})
 			}
-			scache.Clear()
-			syncMapPool.Put(scache)
+		} else if scache != nil {
+			scache.Range(func(key, value any) bool {
+				watch := value.(*sync.Map)
+				if watch != nil {
+					watch.Range(func(key, value any) bool {
+						sobj := value.(*sessionObject)
+						if sobj != nil {
+							sobj.reset()
+							sessionObjectPool.Put(sobj) // 回收会话内存
+						}
+						return true
+					})
+				}
+				return true
+			})
 		}
+
 		sessionListMap.Delete(gid) // 清除会话列举标识
+
+		if batch != nil {
+			if len(batch.objects) > 0 {
+				batch.submit()
+			}
+			commitCost = XTime.GetMicrosecond() - batch.time
+		}
 	}
 }
