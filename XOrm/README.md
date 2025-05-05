@@ -219,12 +219,10 @@ cond := XOrm.Cond("((age > {0} && name contains {1}) || status == {2}) && active
 ##### 2.4.5 分页查询
 
 ```go
-// 限制返回数量
+// 分页限定
 cond := XOrm.Cond("age > {0} && limit = {1}", 18, 10)
-
-// 设置偏移量
+// 分页偏移
 cond := XOrm.Cond("age > {0} && offset = {1}", 18, 20)
-
 // 组合使用
 cond := XOrm.Cond("age > {0} && limit = {1} && offset = {2}", 18, 10, 20)
 ```
@@ -233,26 +231,32 @@ cond := XOrm.Cond("age > {0} && limit = {1} && offset = {2}", 18, 10, 20)
 
 ```go
 // 1. 简单查询
-user := NewUser()
+model := NewUser()
 cond := XOrm.Cond("age > {0}", 18)
-if XOrm.Read(user, cond) {
+user := model.Read(cond)
+if user.IsValid() {
     fmt.Printf("Found user: %v\n", user.Name)
 }
 
-// 2. 复杂条件查询
+// 2. 复杂查询
+model := NewUser()
 var users []*User
 cond := XOrm.Cond("(age >= {0} && age <= {1}) || name contains {2}", 18, 30, "test")
-count := XOrm.List(&users, cond)
+count := model.List(&users, cond)
 fmt.Printf("Found %d users\n", count)
 
 // 3. 分页查询
+model := NewUser()
 var users []*User
-cond := XOrm.Cond("age > {0} && limit = {1} && offset = {2}", 18, 10, 20)
-XOrm.List(&users, cond)
+cond := XOrm.Cond("age > {0} limit {1} offset {2}", 18, 10, 20)
+count := model.List(&users, cond)
+fmt.Printf("Found %d users\n", count)
 
 // 4. 统计查询
+model := NewUser()
 cond := XOrm.Cond("status == {0} && age > {1}", "active", 18)
-count := XOrm.Count(NewUser(), cond)
+count := model.Count(cond)
+fmt.Printf("Found %d users\n", count)
 ```
 
 注意事项：
@@ -403,9 +407,6 @@ stateDiagram-v2
         XOrm.Clear() --> 标记会话缓存清除
         标记会话缓存清除 --> 标记全局缓存清除: model.IsValid(false) 
         标记全局缓存清除 --> [*]: sobj.clear = true
-
-        [*] --> XOrm.Count(): 数据计数
-        XOrm.Count() --> [*]
 
         [*] --> XOrm.Incre(): 索引自增
         XOrm.Incre() --> [*]
