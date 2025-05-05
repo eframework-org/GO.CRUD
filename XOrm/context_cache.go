@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XLoom"
@@ -228,19 +227,6 @@ func globalUnlock(model IModel) {
 // concurrentRangeChunk 定义了并发遍历 sync.Map 时的最小键值对数量。
 const concurrentRangeChunk = 100
 
-type unsafeSyncMap struct {
-	mu   sync.Mutex
-	read atomic.Pointer[unsafeSyncMapReadOnly]
-}
-
-type unsafeSyncMapReadOnly struct {
-	m map[any]*unsafeSyncMapEntry
-}
-
-type unsafeSyncMapEntry struct {
-	p atomic.Pointer[any]
-}
-
 // concurrentRange 并行遍历 sync.Map 中的所有键值对。
 // 它将所有的键收集到一个切片中，然后按指定的 worker 数量将键分页，每个工作 goroutine 处理其中一部分。
 //
@@ -265,27 +251,32 @@ func concurrentRange(data *sync.Map, process func(index int, key, value any) boo
 	//
 	// 数据分治法在处理 keys 时有 slice 分配，数据缓冲法无额外的内存分配，但数据缓冲至 channel 的效率不高
 	// 两种方法的时间复杂度约为 1:5
-	// 这里采用时间换空间的方式，通过 unsafe 适当提高数据分治法的遍历效率及数据的原子性
+	// 这里采用时间换空间的方式，通过 unsafe 适当提高数据分治法的遍历效率及数据的原子性（低于 1.24 版本可用）
+	// 1.24 版本 sync.Map 的底层进行了重构：https://zhuanlan.zhihu.com/p/24695030969，故上述优化的兼容性不高
+	// unsafeSyncMap 实现备份：
+	//
+	// type unsafeSyncMap struct {
+	// 	mu   sync.Mutex
+	// 	read atomic.Pointer[unsafeSyncMapReadOnly]
+	// }
+	// type unsafeSyncMapReadOnly struct {
+	// 	m map[any]*unsafeSyncMapEntry
+	// }
+	// type unsafeSyncMapEntry struct {
+	// 	p atomic.Pointer[any]
+	// }
+	// data.Range(func(key, value any) bool { return false }) // 调用一遍 Range 保证数据同步
+	// udata := (*unsafeSyncMap)(unsafe.Pointer(data))
+	// ronly := udata.read.Load()
+	// umap := ronly.m
+	// keys := make([]any, 0, len(umap)) // 预分配足够的容量，避免 append 时频繁扩容
 
-	data.Range(func(key, value any) bool { return false }) // 调用一遍 Range 保证数据同步
-	udata := (*unsafeSyncMap)(unsafe.Pointer(data))
-	if udata == nil {
-		return
-	}
-	ronly := udata.read.Load()
-	if ronly == nil {
-		return
-	}
-	umap := ronly.m
-	if umap == nil {
-		return
-	}
-	dataCount := len(umap)
-	keys := make([]any, 0, dataCount) // 预分配足够的容量，避免 append 时频繁扩容
+	var keys []any
 	data.Range(func(key, value any) bool {
 		keys = append(keys, key)
 		return true
 	})
+	dataCount := len(keys)
 
 	if dataCount > 0 {
 		var workerCount = runtime.NumCPU()
@@ -319,9 +310,8 @@ func concurrentRange(data *sync.Map, process func(index int, key, value any) boo
 						return // 其他线程仍然可能会回调，直到下一次判定终止状态时停止遍历
 					}
 					key := keys[j]
-					if tmp := umap[key]; tmp != nil {
-						value := tmp.p.Load()
-						if !process(workerID, key, *value) {
+					if value, ok := data.Load(key); ok {
+						if !process(workerID, key, value) {
 							atomic.StoreInt32(&done, 1)
 							return
 						}
