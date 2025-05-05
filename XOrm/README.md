@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/tag/eframework-org/GO.CRUD)](https://github.com/eframework-org/GO.CRUD/tags)
 [![Report](https://goreportcard.com/badge/github.com/eframework-org/GO.CRUD)](https://goreportcard.com/report/github.com/eframework-org/GO.CRUD)
 
-XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机制，提高了数据操作的效率。
+XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机制，提高了数据操作的效率。
 
 ## 功能特性
 

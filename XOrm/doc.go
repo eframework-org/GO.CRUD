@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 /*
-XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机制，提高了数据操作的效率。
+XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机制，提高了数据操作的效率。
 
 功能特性
 

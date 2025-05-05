@@ -8,7 +8,7 @@ EFramework CRUD for Go 是一个高性能的数据操作模块，集成了 Beego
 
 ## 功能特性
 
-- [XOrm](XOrm/README.md) 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的缓存机制，提高了数据操作的效率
+- [XOrm](XOrm/README.md) 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机制，提高了数据操作的效率
 - [XPairs](XPairs/README.md) 提供了 NoSQL 的键值对存储功能，支持高性能的数据读写和缓存操作
 
 ## 常见问题
