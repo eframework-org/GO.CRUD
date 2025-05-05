@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/petermattis/goid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -42,10 +43,15 @@ func TestContextIncre(t *testing.T) {
 
 				go func(j int) {
 					defer wg.Done()
-					Watch()
+
+					gid := goid.Get()
+					ctx := &context{}
+					ctx.writable = test.writable
+					contextMap.Store(gid, ctx)
+					defer contextMap.Delete(gid)
+
 					Incre(model)
 					Incre(model, "int_val", 2)
-					Defer()
 				}(i)
 			}
 			wg.Wait()

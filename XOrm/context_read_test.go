@@ -82,7 +82,7 @@ func TestContextRead(t *testing.T) {
 					defer wg.Done()
 
 					gid := goid.Get()
-					ctx := contextPool.Get().(*context)
+					ctx := &context{}
 					contextMap.Store(gid, ctx)
 					defer contextMap.Delete(gid)
 

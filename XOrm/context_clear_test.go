@@ -36,7 +36,7 @@ func TestContextClear(t *testing.T) {
 
 		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
 			gid := goid.Get()
-			ctx := contextPool.Get().(*context)
+			ctx := &context{}
 			ctx.writable = test.writable
 			contextMap.Store(gid, ctx)
 			defer contextMap.Delete(gid)

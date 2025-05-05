@@ -43,7 +43,7 @@ func TestContextWrite(t *testing.T) {
 					defer wg.Done()
 
 					gid := goid.Get()
-					ctx := contextPool.Get().(*context)
+					ctx := &context{}
 					ctx.writable = test.writable
 					contextMap.Store(gid, ctx)
 					defer contextMap.Delete(gid)
