@@ -159,8 +159,7 @@ XOrm.Meta(NewLog(), false, true)
 cond := XOrm.Cond()
 
 // 2. 从现有条件创建
-baseCond := orm.NewCondition()
-cond := XOrm.Cond(baseCond)
+cond := XOrm.Cond(orm.NewCondition())
 
 // 3. 从表达式创建（推荐）
 cond := XOrm.Cond("age > {0} && name == {1}", 18, "test")
@@ -210,10 +209,9 @@ cond := XOrm.Cond("age < {0} || age > {1}", 18, 60)
 // NOT 条件
 cond := XOrm.Cond("!(age >= {0})", 30)
 
-// 复杂组合（使用括号控制优先级）
+// 复杂组合
 cond := XOrm.Cond("(age >= {0} && age <= {1}) || name == {2}", 18, 30, "test")
-cond := XOrm.Cond("((age > {0} && name contains {1}) || status == {2}) && active == {3}",
-    18, "test", "active", true)
+cond := XOrm.Cond("((age > {0} && name contains {1}) || status == {2}) && active == {3}", 18, "test", "active", true)
 ```
 
 ##### 2.4.5 分页查询
@@ -415,6 +413,9 @@ stateDiagram-v2
 
         [*] --> XOrm.Clear(): 数据清除操作
         XOrm.Clear() --> 设置缓存监控: datas.IsValid(false) sobj.clear = cond
+
+        [*] --> XOrm.Incre(): 索引自增操作
+        XOrm.Incre() --> 设置缓存监控: globalIncreMap
     }
 ```
 

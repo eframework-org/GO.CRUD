@@ -148,8 +148,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 	cond := XOrm.Cond()
 
 	// 2. 从现有条件创建
-	baseCond := orm.NewCondition()
-	cond := XOrm.Cond(baseCond)
+	cond := XOrm.Cond(orm.NewCondition())
 
 	// 3. 从表达式创建（推荐）
 	cond := XOrm.Cond("age > {0} && name == {1}", 18, "test")
@@ -193,10 +192,9 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 	// NOT 条件
 	cond := XOrm.Cond("!(age >= {0})", 30)
 
-	// 复杂组合（使用括号控制优先级）
+	// 复杂组合
 	cond := XOrm.Cond("(age >= {0} && age <= {1}) || name == {2}", 18, 30, "test")
-	cond := XOrm.Cond("((age > {0} && name contains {1}) || status == {2}) && active == {3}",
-	    18, "test", "active", true)
+	cond := XOrm.Cond("((age > {0} && name contains {1}) || status == {2}) && active == {3}", 18, "test", "active", true)
 
 分页查询：
 
