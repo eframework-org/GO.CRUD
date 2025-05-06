@@ -332,10 +332,17 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 
 提交队列的性能可以通过以下配置参数进行调整：
 
+配置项说明：
+
+`Orm/Commit/Queue`：提交队列数量，默认为 CPU 核心数
+`Orm/Commit/Batch`：单个队列的最大容量，默认为 100000
+
+配置示例：
+
 ```json
 {
-    "Orm/Commit/Queue": 8,  // 提交队列数量，默认为 CPU 核心数
-    "Orm/Commit/Batch": 100000  // 单个队列的最大容量，默认为 100000
+    "Orm/Commit/Queue": 8,
+    "Orm/Commit/Batch": 100000
 }
 ```
 
