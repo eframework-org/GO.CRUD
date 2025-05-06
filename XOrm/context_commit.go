@@ -5,6 +5,7 @@
 package XOrm
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
@@ -18,6 +19,7 @@ import (
 	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/illumitacit/gostd/quit"
 	"github.com/petermattis/goid"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -37,6 +39,18 @@ var (
 
 	// commitQueues 定义了提交队列的切片，用于缓冲待处理的批次数据。
 	commitQueues []chan *commitBatch
+
+	// commitGauge 定义了提交队列的计数器，用于统计所有队列等待提交的对象数量。
+	commitGauge prometheus.Gauge
+
+	// commitCounter 定义了提交队列的计数器，用于统计所有队列已经提交的对象总数。
+	commitCounter prometheus.Counter
+
+	// commitGauges 定义了提交队列的计数器，用于统计指定队列等待提交的对象数量。
+	commitGauges []prometheus.Gauge
+
+	// commitCounters 定义了提交队列的计数器，用于统计指定队列已经提交的对象总数。
+	commitCounters []prometheus.Counter
 
 	// commitSetupSig 定义了提交队列的信号通道，用于接收退出信号。
 	commitSetupSig []chan os.Signal
@@ -82,6 +96,16 @@ func setupCommit(prefs XPrefs.IBase) {
 	}
 
 	commitQueues = make([]chan *commitBatch, commitQueueCount)
+	commitGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "xorm_commit_queue",
+		Help: "The total number of pending commit objects.",
+	})
+	commitCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "xorm_commit_total",
+		Help: "The total number of committed objects.",
+	})
+	commitGauges = make([]prometheus.Gauge, commitQueueCount)
+	commitCounters = make([]prometheus.Counter, commitQueueCount)
 	commitSetupSig = make([]chan os.Signal, commitQueueCount)
 	commitFlushWait = make([]chan *sync.WaitGroup, commitQueueCount)
 	for i := range commitQueueCount {
@@ -98,6 +122,16 @@ func setupCommit(prefs XPrefs.IBase) {
 	wg := sync.WaitGroup{}
 	for i := range commitQueueCount {
 		wg.Add(1)
+
+		commitGauges[i] = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: fmt.Sprintf("xorm_commit_queue_%v", i),
+			Help: fmt.Sprintf("The total number of pending commit objects in queue %v.", i),
+		})
+		commitCounters[i] = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: fmt.Sprintf("xorm_commit_total_%v", i),
+			Help: fmt.Sprintf("The total number of committed objects in queue %v.", i),
+		})
+
 		XLoom.RunAsyncT2(func(queueID int, doneOnce *sync.Once) {
 			setupSig := commitSetupSig[queueID]
 			signal.Notify(setupSig, syscall.SIGTERM, syscall.SIGINT)
@@ -116,7 +150,7 @@ func setupCommit(prefs XPrefs.IBase) {
 				for {
 					if len(queue) > 0 {
 						batch := <-queue
-						batch.push()
+						batch.push(queueID)
 						continue
 					} else {
 						break
@@ -132,12 +166,12 @@ func setupCommit(prefs XPrefs.IBase) {
 					if batch == nil {
 						return
 					}
-					batch.push()
+					batch.push(queueID)
 				case fwg := <-flushSig:
 					for {
 						if len(queue) > 0 {
 							batch := <-queue
-							batch.push()
+							batch.push(queueID)
 							continue
 						} else {
 							break
@@ -198,13 +232,18 @@ func (cb *commitBatch) submit(gid ...int64) {
 
 	select {
 	case queue <- cb:
+		// 更新数据度量。
+		delta := float64(len(cb.objects))
+		commitGauge.Add(delta)
+		commitGauges[queueID].Add(delta)
 	default:
-		XLog.Error("XOrm.Commit.Submit: too many data to commit.")
+		XLog.Critical("XOrm.Commit.Submit: too many data to submit: %v", XLog.Caller(1, false))
 	}
 }
 
 // push 推送批次对象至远端数据库或缓存中。
-func (cb *commitBatch) push() {
+// queueID 是批次对象所属的队列 ID。
+func (cb *commitBatch) push(queueID int) {
 	if cb.tag != nil {
 		XLog.Watch(cb.tag)
 	}
@@ -214,20 +253,20 @@ func (cb *commitBatch) push() {
 	// 优先处理清除操作，尽早释放全局锁，提高效率
 	for _, cobj := range cb.objects {
 		if cobj.clear != nil {
-			cb.handle(cobj)
+			cb.handle(cobj, queueID)
 		}
 	}
 
 	// 优先处理删除操作，尽早释放全局锁，提高效率
 	for _, cobj := range cb.objects {
 		if cobj.delete {
-			cb.handle(cobj)
+			cb.handle(cobj, queueID)
 		}
 	}
 
 	for _, cobj := range cb.objects {
 		if cobj.ptr != nil && !cobj.delete && cobj.clear == nil {
-			cb.handle(cobj)
+			cb.handle(cobj, queueID)
 		}
 	}
 
@@ -245,7 +284,9 @@ func (cb *commitBatch) push() {
 	commitBatchPool.Put(cb)
 }
 
-func (cb *commitBatch) handle(sobj *sessionObject) {
+// handle 处理批次对象中的单个数据对象。
+// queueID 是批次对象所属的队列 ID。
+func (cb *commitBatch) handle(sobj *sessionObject, queueID int) {
 	startTime := XTime.GetMicrosecond()
 	obj := sobj.ptr
 	key := obj.DataUnique()
@@ -274,6 +315,12 @@ func (cb *commitBatch) handle(sobj *sessionObject) {
 	if cb.posthandler != nil {
 		cb.posthandler(cb, sobj)
 	}
+
+	// 更新数据度量。
+	commitCounter.Inc()
+	commitCounters[queueID].Inc()
+	commitGauge.Dec()
+	commitGauges[queueID].Dec()
 
 	if action != "" {
 		t2 := XTime.GetMicrosecond()
@@ -333,7 +380,25 @@ func Close() {
 			signal.Stop(sig)
 			close(sig)
 		}
-		// 等待所有队列完成
+		// 等待所有队列完成。
 		commitCloseWait.Wait()
+
+		// 注销数据度量。
+		if commitGauge != nil {
+			prometheus.Unregister(commitGauge)
+		}
+		if commitCounter != nil {
+			prometheus.Unregister(commitCounter)
+		}
+		if len(commitGauges) != 0 {
+			for _, gauge := range commitGauges {
+				prometheus.Unregister(gauge)
+			}
+		}
+		if len(commitCounters) != 0 {
+			for _, counter := range commitCounters {
+				prometheus.Unregister(counter)
+			}
+		}
 	}
 }

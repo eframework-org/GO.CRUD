@@ -13,6 +13,8 @@ import (
 
 	"github.com/eframework-org/GO.UTIL/XPrefs"
 	"github.com/eframework-org/GO.UTIL/XTime"
+	"github.com/petermattis/goid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -63,6 +65,8 @@ func TestContextCommit(t *testing.T) {
 
 		ResetBaseTest(t)
 		SetupBaseTest(t, false, true)
+		setupCommit(XPrefs.Asset())
+
 		model := NewTestBaseModel()
 
 		wg := sync.WaitGroup{}
@@ -193,6 +197,43 @@ func TestContextCommit(t *testing.T) {
 			}(i, t)
 		}
 		wg.Wait()
+	})
+
+	t.Run("Metrics", func(t *testing.T) {
+		defer ResetBaseTest(t)
+		defer setupCommit(XPrefs.Asset())
+
+		ResetBaseTest(t)
+		SetupBaseTest(t, false, true)
+		setupCommit(XPrefs.Asset())
+
+		gid := goid.Get()
+		queueID := max(int(gid)%commitQueueCount, 0)
+
+		batch := commitBatchPool.Get().(*commitBatch)
+		batch.time = XTime.GetMicrosecond()
+		for i := range 100 { // 100 个对象
+			data := NewTestBaseModel()
+			data.ID = i + 1
+
+			sobj := sessionObjectPool.Get().(*sessionObject)
+			sobj.ptr = data
+			sobj.create = true
+
+			batch.objects = append(batch.objects, sobj)
+		}
+		batch.submit()
+
+		assert.Equal(t, 100, int(testutil.ToFloat64(commitGauges[queueID])), "指定队列 %v 等待提交的对象数量应当为 100。", queueID)
+		assert.Equal(t, 100, int(testutil.ToFloat64(commitGauge)), "所有队列等待提交的对象数量应当为 100。")
+
+		Flush() // 等待提交完成
+
+		assert.Equal(t, 0, int(testutil.ToFloat64(commitGauges[queueID])), "指定队列 %v 等待提交的对象数量应当为 0。", queueID)
+		assert.Equal(t, 0, int(testutil.ToFloat64(commitGauge)), "所有队列等待提交的对象数量应当为 0。")
+
+		assert.Equal(t, 100, int(testutil.ToFloat64(commitCounters[queueID])), "指定队列 %v 已经提交的对象总数应当为 100。", queueID)
+		assert.Equal(t, 100, int(testutil.ToFloat64(commitCounter)), "所有队列已经提交的对象总数应当为 100。")
 	})
 
 	t.Run("Flush", func(t *testing.T) {
