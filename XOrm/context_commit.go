@@ -26,7 +26,7 @@ const (
 	// commitQueueCountPrefs 定义了提交队列的数量的偏好设置键。
 	commitQueueCountPrefs = "Orm/Commit/Queue"
 
-	// commitBatchCountPrefs 定义了单个队列的最大容量的偏好设置键。
+	// commitBatchCountPrefs 定义了单个队列的容量的偏好设置键。
 	commitBatchCountPrefs = "Orm/Commit/Batch"
 )
 
@@ -34,7 +34,7 @@ var (
 	// commitQueueCount 定义了提交队列的数量，默认为 CPU 核心数。
 	commitQueueCount int = runtime.NumCPU()
 
-	// commitBatchCount 定义了单个队列的最大容量，当超过此容量时，新的批次将被丢弃。
+	// commitBatchCount 定义了单个队列的容量，当超过此容量时，新的批次将被丢弃。
 	commitBatchCount int = 100000
 
 	// commitQueues 定义了提交队列的切片，用于缓冲待处理的批次数据。

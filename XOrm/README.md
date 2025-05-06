@@ -334,8 +334,8 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 
 配置参数：
 
-- `Orm/Commit/Queue`：提交队列数量，默认为 CPU 核心数
-- `Orm/Commit/Batch`：单个队列的最大容量，默认为 100000
+- `Orm/Commit/Queue`：提交队列的数量，默认为 CPU 核心数
+- `Orm/Commit/Batch`：单个队列的容量，默认为 100000
 
 配置示例：
 
