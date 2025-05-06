@@ -15,7 +15,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 
 1. 多源配置
 
-配置项说明：
+配置说明：
   - 配置键名：Orm/<数据库类型>/<数据库别名>
   - 支持 MySQL、PostgreSQL、SQLite3 等（Beego ORM 支持的类型）
   - 配置参数：
