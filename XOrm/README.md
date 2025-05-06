@@ -121,7 +121,7 @@ Matchs(cond ...*condition) bool // 条件匹配
 
 参数说明：
 - cache：是否缓存，启用后支持全局缓存
-- writable：是否可写，启用后支持写入和删除操作
+- writable：是否可写，启用后支持修改数据
 
 应用场景：
 
@@ -398,31 +398,31 @@ stateDiagram-v2
 stateDiagram-v2
     direction TB
     state Context {
-        设置缓存监控 --> [*]
+        同步缓存数据 --> [*]
 
         [*] --> XOrm.Read(): 数据读取操作
         XOrm.Read() --> 会话缓存读取: sessionListed
         会话缓存读取 --> 全局缓存读取: globalListed
         全局缓存读取 --> 远端数据读取: fallback
-        远端数据读取 --> 设置缓存监控: data.IsValid(true)
+        远端数据读取 --> 同步缓存数据: data.IsValid(true)
 
         [*] --> XOrm.List(): 数据列举操作
         XOrm.List() --> 会话缓存列举: sessionListed
         会话缓存列举 --> 全局缓存列举: globalListed
         全局缓存列举 --> 远端数据列举: fallback
-        远端数据列举 --> 设置缓存监控: datas.IsValid(true)
+        远端数据列举 --> 同步缓存数据: datas.IsValid(true)
 
         [*] --> XOrm.Write(): 数据写入操作
-        XOrm.Write() --> 设置缓存监控: data.IsValid(true) sobj.create = true
+        XOrm.Write() --> 同步缓存数据: data.IsValid(true) sobj.create = true
 
         [*] --> XOrm.Delete(): 数据删除操作
-        XOrm.Delete() --> 设置缓存监控: data.IsValid(false) sobj.delete = true
+        XOrm.Delete() --> 同步缓存数据: data.IsValid(false) sobj.delete = true
 
         [*] --> XOrm.Clear(): 数据清除操作
-        XOrm.Clear() --> 设置缓存监控: datas.IsValid(false) sobj.clear = cond
+        XOrm.Clear() --> 同步缓存数据: datas.IsValid(false) sobj.clear = cond
 
         [*] --> XOrm.Incre(): 索引自增操作
-        XOrm.Incre() --> 设置缓存监控: globalIncreMap
+        XOrm.Incre() --> 同步缓存数据: globalIncreMap
     }
 ```
 
