@@ -200,7 +200,7 @@ func setupCommit(prefs XPrefs.IBase) {
 // commitBatch 定义了一批需要处理的数据对象，用于批量异步处理数据变更。
 type commitBatch struct {
 	tag         *XLog.LogTag                                  // 日志标签，用于追踪批次处理
-	time        int                                           // 批次创建时间
+	stime       int                                           // 批次提交时间
 	objects     []*sessionObject                              // 待处理的对象列表
 	prehandler  func(batch *commitBatch, sobj *sessionObject) // 预处理函数，在处理对象前调用
 	posthandler func(batch *commitBatch, sobj *sessionObject) // 后处理函数，在处理对象后调用
@@ -209,8 +209,10 @@ type commitBatch struct {
 // reset 重置批次对象的状态，在批次被放回对象池前调用。
 func (cb *commitBatch) reset() {
 	cb.tag = nil
-	cb.time = 0
+	cb.stime = 0
 	cb.objects = nil
+	cb.prehandler = nil
+	cb.posthandler = nil
 }
 
 // submit 提交批次对象至队列中，等待被处理。
@@ -218,6 +220,8 @@ func (cb *commitBatch) submit(gid ...int64) {
 	if atomic.LoadInt32(&commitCloseSig) > 0 {
 		return
 	}
+
+	cb.stime = XTime.GetMicrosecond()
 
 	var ggid int64
 	if len(gid) > 0 {
@@ -247,7 +251,7 @@ func (cb *commitBatch) push(queueID int) {
 	if cb.tag != nil {
 		XLog.Watch(cb.tag)
 	}
-	pendingTime := XTime.GetMicrosecond() - cb.time
+	pendingTime := XTime.GetMicrosecond() - cb.stime
 	nowTime := XTime.GetMicrosecond()
 
 	// 优先处理清除操作，尽早释放全局锁，提高效率

@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/eframework-org/GO.UTIL/XPrefs"
-	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -51,8 +50,10 @@ func TestContextCommit(t *testing.T) {
 				bobj := commitBatchPool.Get().(*commitBatch)
 				bobj.reset()
 				assert.Nil(t, bobj.tag, "commitBatch 对象的 tag 字段应为 nil。")
-				assert.Equal(t, 0, bobj.time, "commitBatch 对象的 time 字段应为 0。")
+				assert.Equal(t, 0, bobj.stime, "commitBatch 对象的 time 字段应为 0。")
 				assert.Nil(t, bobj.objects, "commitBatch 对象的 objs 字段应为 nil。")
+				assert.Nil(t, bobj.prehandler, "commitBatch 对象的 prehandler 字段应为 nil。")
+				assert.Nil(t, bobj.posthandler, "commitBatch 对象的 posthandler 字段应为 nil。")
 				commitBatchPool.Put(bobj)
 			}(i)
 		}
@@ -80,7 +81,6 @@ func TestContextCommit(t *testing.T) {
 				t.Run("Create", func(t *testing.T) {
 					for j := range 10 { // 10 个批次
 						batch := commitBatchPool.Get().(*commitBatch)
-						batch.time = XTime.GetMicrosecond()
 						for k := range 10 { // 10 个对象
 							data := NewTestBaseModel()
 							data.ID = i*100 + j*10 + k + 1
@@ -111,7 +111,6 @@ func TestContextCommit(t *testing.T) {
 					model.List(&datas, Cond("id >= {0} && id <= {1}", i*100+1, i*100+100))
 
 					batch := commitBatchPool.Get().(*commitBatch)
-					batch.time = XTime.GetMicrosecond()
 					for _, data := range datas {
 						data.StringVal = "test_update"
 						sobj := sessionObjectPool.Get().(*sessionObject)
@@ -134,7 +133,6 @@ func TestContextCommit(t *testing.T) {
 					model.List(&datas, Cond("id >= {0} && id <= {1}", i*100+1, i*100+100))
 
 					batch := commitBatchPool.Get().(*commitBatch)
-					batch.time = XTime.GetMicrosecond()
 					for j := range len(datas) / 2 {
 						data := datas[j]
 						sobj := sessionObjectPool.Get().(*sessionObject)
@@ -153,7 +151,6 @@ func TestContextCommit(t *testing.T) {
 				// 测试清除操作
 				t.Run("Clear", func(t *testing.T) {
 					batch := commitBatchPool.Get().(*commitBatch)
-					batch.time = XTime.GetMicrosecond()
 					sobj := sessionObjectPool.Get().(*sessionObject)
 					sobj.ptr = model
 					sobj.clear = Cond("id >= {0} && id <= {1}", i*100+1, i*100+100)
@@ -169,7 +166,6 @@ func TestContextCommit(t *testing.T) {
 				// 测试前后置处理器回调
 				t.Run("Handler", func(t *testing.T) {
 					batch := commitBatchPool.Get().(*commitBatch)
-					batch.time = XTime.GetMicrosecond()
 					sobj := sessionObjectPool.Get().(*sessionObject)
 					sobj.ptr = model
 					batch.objects = append(batch.objects, sobj)
@@ -211,7 +207,6 @@ func TestContextCommit(t *testing.T) {
 		queueID := max(int(gid)%commitQueueCount, 0)
 
 		batch := commitBatchPool.Get().(*commitBatch)
-		batch.time = XTime.GetMicrosecond()
 		for i := range 100 { // 100 个对象
 			data := NewTestBaseModel()
 			data.ID = i + 1
@@ -254,7 +249,6 @@ func TestContextCommit(t *testing.T) {
 				defer wg.Done()
 
 				batch := commitBatchPool.Get().(*commitBatch)
-				batch.time = XTime.GetMicrosecond()
 				data := NewTestBaseModel()
 				data.ID = i + 1
 				data.StringVal = "test_flush"
