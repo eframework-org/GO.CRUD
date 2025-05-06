@@ -271,7 +271,7 @@ func (cb *commitBatch) push(queueID int) {
 	}
 
 	elapsedTime := XTime.GetMicrosecond() - nowTime
-	XLog.Notice("XOrm.Commit.Push: pushed %v object(s), elapsed %.2fms, pending %.2fms.", len(cb.objects), float64(elapsedTime)/1e3, float64(penddingTime)/1e3)
+	XLog.Notice("XOrm.Commit.Push: processed %v object(s), elapsed %.2fms, pending %.2fms.", len(cb.objects), float64(elapsedTime)/1e3, float64(penddingTime)/1e3)
 
 	if cb.tag != nil {
 		XLog.Defer()
