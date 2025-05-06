@@ -102,8 +102,8 @@ func Watch(writable ...bool) int {
 
 	tag := XLog.Tag()
 	if tag != nil { // 设置日志标签
-		tag.Set("Context", XString.ToString(sid))
 		tag.Set("Go", XString.ToString(int(gid)))
+		tag.Set("Context", XString.ToString(sid))
 	}
 
 	XLog.Info("XOrm.Watch: context has been started.")
@@ -134,31 +134,31 @@ func Defer() {
 				otherCost := int64(XTime.GetMicrosecond() - ctx.time - selfCost)
 				var crudLog string
 				if ctx.readCount > 0 {
-					crudLog += fmt.Sprintf("[Read(%v): %.2fms] ", ctx.readCount, float64(ctx.readElapsed)/1e3)
+					crudLog += fmt.Sprintf("[Read(%v):%.2fms] ", ctx.readCount, float64(ctx.readElapsed)/1e3)
 					otherCost -= ctx.readElapsed
 				}
 				if ctx.listCount > 0 {
-					crudLog += fmt.Sprintf("[List(%v): %.2fms] ", ctx.listCount, float64(ctx.listElapsed)/1e3)
+					crudLog += fmt.Sprintf("[List(%v):%.2fms] ", ctx.listCount, float64(ctx.listElapsed)/1e3)
 					otherCost -= ctx.listElapsed
 				}
 				if ctx.writeCount > 0 {
-					crudLog += fmt.Sprintf("[Write(%v): %.2fms] ", ctx.writeCount, float64(ctx.writeElapsed)/1e3)
+					crudLog += fmt.Sprintf("[Write(%v):%.2fms] ", ctx.writeCount, float64(ctx.writeElapsed)/1e3)
 					otherCost -= ctx.writeElapsed
 				}
 				if ctx.deleteCount > 0 {
-					crudLog += fmt.Sprintf("[Delete(%v): %.2fms] ", ctx.deleteCount, float64(ctx.deleteElapsed)/1e3)
+					crudLog += fmt.Sprintf("[Delete(%v):%.2fms] ", ctx.deleteCount, float64(ctx.deleteElapsed)/1e3)
 					otherCost -= ctx.deleteElapsed
 				}
 				if ctx.clearCount > 0 {
-					crudLog += fmt.Sprintf("[Clear(%v): %.2fms] ", ctx.clearCount, float64(ctx.clearElapsed)/1e3)
+					crudLog += fmt.Sprintf("[Clear(%v):%.2fms] ", ctx.clearCount, float64(ctx.clearElapsed)/1e3)
 					otherCost -= ctx.clearElapsed
 				}
 				if ctx.increCount > 0 {
-					crudLog += fmt.Sprintf("[Incre(%v): %.2fms] ", ctx.increCount, float64(ctx.increElapsed)/1e3)
+					crudLog += fmt.Sprintf("[Incre(%v):%.2fms] ", ctx.increCount, float64(ctx.increElapsed)/1e3)
 					otherCost -= ctx.increElapsed
 				}
-				XLog.Info("XOrm.Defer: context has been deferred, elapsed %.2fms for %v[Self: %.2fms] [Other: %.2fms].",
-					float64((XTime.GetMicrosecond()-ctx.time)/1e3),
+				XLog.Info("XOrm.Defer: context has been deferred, elapsed %.2fms for %v[Self:%.2fms] [Other:%.2fms].",
+					float64((XTime.GetMicrosecond()-ctx.time))/1e3,
 					crudLog,
 					float64(selfCost)/1e3,
 					float64(otherCost)/1e3)
