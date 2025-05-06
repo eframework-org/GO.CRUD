@@ -323,22 +323,17 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> InitOrm: 初始化 Orm
-    InitOrm --> InitModel: 注册数据模型
-    InitModel --> Ready: Run
-    Ready --> Watch: 监听
-    Watch --> CRUD: 开始会话监听
-    CRUD --> Defer: 结束会话监听
-    Ready --> Close: 退出信号
+    [*] --> Init: 初始化
+    Init --> Run: 开始运行
+    Run --> Watch: 监听会话
+    Watch --> CRUD: 开始 CRUD 监听
+    CRUD --> Defer: 结束 CRUD 监听
+    Run --> Close: 退出信号
 
-    state InitOrm {
+    state Init {
         direction TB
-        [*] --> RegisterDataBase: 解析配置项
-    }
-
-    state InitModel {
-        direction TB
-        [*] --> XOrm.Meta()
+        [*] --> orm.RegisterDataBase: 解析配置选项
+        orm.RegisterDataBase --> XOrm.Meta(): 注册数据模型
     }
 
     state Watch {
@@ -350,25 +345,55 @@ stateDiagram-v2
     state Defer {
         direction TB
         [*] --> XOrm.Defer()
-        XOrm.Defer() --> 缓冲至队列: 对比会话内存
-        缓冲至队列 --> 清除会话内存
+        XOrm.Defer() --> 缓冲提交队列: 对比会话内存
+        缓冲提交队列 --> 清除会话内存
         清除会话内存 --> [*]
     }
 
     state Flush(){
         direction TB
-        [*] --> XOrm.Flush(): 逐个刷新当前队列
-        XOrm.Flush() --> 关闭队列
+        [*] --> XOrm.Flush(): 刷新当前队列
+        XOrm.Flush() --> 关闭提交队列
     }
 
     state Close{
         direction TB
-        [*] --> Flush(): 刷新所有处理队列
+        [*] --> Flush(): 刷新所有队列
         Flush() --> [*]
     }
    
-    缓冲至队列 --> 处理队列数据
-    处理队列数据 --> 关闭队列: 退出信号
+    缓冲提交队列 --> 消费提交队列
+    消费提交队列 --> 关闭提交队列: 收到退出信号
+```
+
+#### 3.3 缓存策略
+```mermaid
+stateDiagram-v2
+    direction TB
+    state Context {
+        设置缓存监控 --> [*]
+
+        [*] --> XOrm.Read(): 数据读取操作
+        XOrm.Read() --> 会话缓存读取: sessionListed
+        会话缓存读取 --> 全局缓存读取: globalListed
+        全局缓存读取 --> 远端数据读取: fallback
+        远端数据读取 --> 设置缓存监控: data.IsValid(true)
+
+        [*] --> XOrm.List(): 数据列举操作
+        XOrm.List() --> 会话缓存列举: sessionListed
+        会话缓存列举 --> 全局缓存列举: globalListed
+        全局缓存列举 --> 远端数据列举: fallback
+        远端数据列举 --> 设置缓存监控: datas.IsValid(true)
+
+        [*] --> XOrm.Write(): 数据写入操作
+        XOrm.Write() --> 设置缓存监控: data.IsValid(true) sobj.create = true
+
+        [*] --> XOrm.Delete(): 数据删除操作
+        XOrm.Delete() --> 设置缓存监控: data.IsValid(false) sobj.delete = true
+
+        [*] --> XOrm.Clear(): 数据清除操作
+        XOrm.Clear() --> 设置缓存监控: datas.IsValid(false) sobj.clear = cond
+    }
 ```
 
 ## 常见问题
