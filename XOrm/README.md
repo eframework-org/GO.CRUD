@@ -56,7 +56,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 // 定义用户模型
 type User struct {
     XOrm.Model[User]           // 继承基础模型
-    ID        int        `orm:"column(id);pk"` // 主键，自增
+    ID        int        `orm:"column(id);pk"` // 主键字段
     Name      string     `orm:"column(name)"` // 字符串字段
     Age       int        `orm:"column(age)"` // 整型字段
 }
@@ -91,21 +91,21 @@ OnDecode()                  // 解码后回调
 ```go
 AliasName() string          // 数据库别名
 TableName() string          // 数据表名称
-ModelUnique() string        // 模型唯一标识
-DataUnique() string         // 数据唯一标识
+ModelUnique() string        // 模型标识
+DataUnique() string         // 数据标识
 DataValue(field string) any // 获取字段值
 ```
 
 3. 数据操作：
 ```go
-Count(cond ...*condition) int                  // 统计记录数
+Read(cond ...*condition) bool                  // 读取数据
+List(rets any, cond ...*condition) int         // 列举数据
+Write() int                                    // 写入数据
+Delete() int                                   // 删除数据
+Clear(cond ...*condition) int                  // 清除数据
+Count(cond ...*condition) int                  // 统计数量
 Max(column ...string) int                      // 获取最大值
 Min(column ...string) int                      // 获取最小值
-Delete() int                                   // 删除记录
-Write() int                                    // 写入记录
-Read(cond ...*condition) bool                  // 读取记录
-List(rets any, cond ...*condition) int         // 查询列表
-Clear(cond ...*condition) int                  // 清理记录
 ```
 
 4. 工具方法：
