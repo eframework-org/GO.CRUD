@@ -92,6 +92,7 @@
 [![Reference](https://pkg.go.dev/badge/<组织名称>/<项目名称>.svg)](https://pkg.go.dev/<组织名称>/<项目名称>)
 [![Release](https://img.shields.io/github/v/tag/<组织名称>/<项目名称>)](https://github.com/<组织名称>/<项目名称>/tags)
 [![Report](https://goreportcard.com/badge/<组织名称>/<项目名称>)](https://goreportcard.com/report/<组织名称>/<项目名称>)
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-Explore-blue)](https://deepwiki.com/<组织名称>/<项目名称>)
 
 <项目名称> 提供了/是一个/实现了 <核心功能>，支持/用于 <主要特性>。
 

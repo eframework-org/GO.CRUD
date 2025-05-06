@@ -3,6 +3,7 @@
 [![Reference](https://pkg.go.dev/badge/github.com/eframework-org/GO.CRUD/XPairs.svg)](https://pkg.go.dev/github.com/eframework-org/GO.CRUD/XPairs)
 [![Release](https://img.shields.io/github/v/tag/eframework-org/GO.CRUD)](https://github.com/eframework-org/GO.CRUD/tags)
 [![Report](https://goreportcard.com/badge/github.com/eframework-org/GO.CRUD)](https://goreportcard.com/report/github.com/eframework-org/GO.CRUD)
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-Explore-blue)](https://deepwiki.com/eframework-org/GO.CRUD)
 
 XPairs 提供了 NoSQL 的键值对存储功能，支持高性能的数据读写和缓存操作。
 
