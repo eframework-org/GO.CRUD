@@ -100,10 +100,12 @@ func setupCommit(prefs XPrefs.IBase) {
 		Name: "xorm_commit_queue",
 		Help: "The total number of pending commit objects.",
 	})
+	prometheus.MustRegister(commitGauge)
 	commitCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "xorm_commit_total",
 		Help: "The total number of committed objects.",
 	})
+	prometheus.MustRegister(commitCounter)
 	commitGauges = make([]prometheus.Gauge, commitQueueCount)
 	commitCounters = make([]prometheus.Counter, commitQueueCount)
 	commitSetupSig = make([]chan os.Signal, commitQueueCount)
@@ -127,10 +129,13 @@ func setupCommit(prefs XPrefs.IBase) {
 			Name: fmt.Sprintf("xorm_commit_queue_%v", i),
 			Help: fmt.Sprintf("The total number of pending commit objects in queue %v.", i),
 		})
+		prometheus.MustRegister(commitGauges[i])
+
 		commitCounters[i] = prometheus.NewCounter(prometheus.CounterOpts{
 			Name: fmt.Sprintf("xorm_commit_total_%v", i),
 			Help: fmt.Sprintf("The total number of committed objects in queue %v.", i),
 		})
+		prometheus.MustRegister(commitCounters[i])
 
 		XLoom.RunAsyncT2(func(queueID int, doneOnce *sync.Once) {
 			setupSig := commitSetupSig[queueID]
