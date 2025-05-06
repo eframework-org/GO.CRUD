@@ -229,7 +229,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 	// 3. 分页查询
 	model := NewUser()
 	var users []*User
-	cond := XOrm.Cond("age > {0} limit {1} offset {2}", 18, 10, 20)
+	cond := XOrm.Cond("age > {0} && limit = {1} && offset = {2}", 18, 10, 20)
 	count := model.List(&users, cond)
 	fmt.Printf("Found %d users\n", count)
 
