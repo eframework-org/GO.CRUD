@@ -7,10 +7,12 @@ package XOrm
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XCollect"
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XLoom"
+	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
 
@@ -41,6 +43,12 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 		XLog.Critical("XOrm.List: model of %v was not registered: %v", model.ModelUnique(), XLog.Caller(1, false))
 		return frets
 	}
+
+	time := XTime.GetMicrosecond()
+	defer func() {
+		atomic.AddInt64(&ctx.listElapsed, int64(XTime.GetMicrosecond()-time))
+		atomic.AddInt64(&ctx.listCount, 1)
+	}()
 
 	writable := meta.writable
 	var cond *Condition

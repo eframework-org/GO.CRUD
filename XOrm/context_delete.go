@@ -5,7 +5,10 @@
 package XOrm
 
 import (
+	"sync/atomic"
+
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
 
@@ -40,6 +43,12 @@ func Delete[T IModel](model T) {
 		XLog.Error("XOrm.Delete: model of %v was not writable.", model.ModelUnique())
 		return
 	}
+
+	time := XTime.GetMicrosecond()
+	defer func() {
+		atomic.AddInt64(&ctx.deleteElapsed, int64(XTime.GetMicrosecond()-time))
+		atomic.AddInt64(&ctx.deleteCount, 1)
+	}()
 
 	model.IsValid(false)
 

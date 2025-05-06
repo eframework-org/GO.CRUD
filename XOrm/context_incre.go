@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
 
@@ -44,6 +45,12 @@ func Incre(model IModel, columnAndDelta ...any) int {
 		XLog.Error("XOrm.Incre: model of %v was not writable.", model.ModelUnique())
 		return -1
 	}
+
+	time := XTime.GetMicrosecond()
+	defer func() {
+		atomic.AddInt64(&ctx.increElapsed, int64(XTime.GetMicrosecond()-time))
+		atomic.AddInt64(&ctx.increCount, 1)
+	}()
 
 	delta := 1
 	cname := ""

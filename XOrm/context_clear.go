@@ -6,8 +6,10 @@ package XOrm
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
 
@@ -44,6 +46,12 @@ func Clear[T IModel](model T, cond ...*Condition) {
 		XLog.Error("XOrm.Clear: model of %v was not writable.", model.ModelUnique())
 		return
 	}
+
+	time := XTime.GetMicrosecond()
+	defer func() {
+		atomic.AddInt64(&ctx.clearElapsed, int64(XTime.GetMicrosecond()-time))
+		atomic.AddInt64(&ctx.clearCount, 1)
+	}()
 
 	model.IsValid(false)
 

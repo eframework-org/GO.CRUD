@@ -20,6 +20,7 @@
 
 ### 新增
 - 新增 XOrm 模块 context_commit.go 的指标度量（Prometheus）
+- 新增 XOrm 模块 Defer 函数的调试日志输出
 
 ## [0.0.1] - 2025-03-23
 ### 新增

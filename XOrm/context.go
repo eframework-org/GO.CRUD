@@ -5,10 +5,12 @@
 package XOrm
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
+	"github.com/eframework-org/GO.UTIL/XString"
 	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
@@ -24,16 +26,40 @@ var (
 	contextPool = sync.Pool{New: func() any { return new(context) }}
 )
 
-// context 定义了数据库操作的上下文信息，用于跟踪和管理数据库操作的生命周期。
+// context 定义了 CRUD 操作的上下文信息，用于管理操作的生命周期。
 type context struct {
-	time     int  // 操作开始时间（微秒）
-	writable bool // 是否读写操作
+	time          int   // 操作开始时间
+	writable      bool  // 是否读写操作
+	readCount     int64 // 读取操作次数
+	readElapsed   int64 // 读取操作耗时
+	listCount     int64 // 列举操作次数
+	listElapsed   int64 // 列举操作耗时
+	writeCount    int64 // 写入操作次数
+	writeElapsed  int64 // 写入操作耗时
+	deleteCount   int64 // 删除操作次数
+	deleteElapsed int64 // 删除操作耗时
+	clearCount    int64 // 清除操作次数
+	clearElapsed  int64 // 清除操作耗时
+	increCount    int64 // 自增操作次数
+	increElapsed  int64 // 自增操作耗时
 }
 
-// reset 重置上下文状态，将时间设为 0，读写标志设为 false。
+// reset 重置上下文状态。
 func (ctx *context) reset() {
 	ctx.time = 0
 	ctx.writable = false
+	ctx.readCount = 0
+	ctx.readElapsed = 0
+	ctx.listCount = 0
+	ctx.listElapsed = 0
+	ctx.writeCount = 0
+	ctx.writeElapsed = 0
+	ctx.deleteCount = 0
+	ctx.deleteElapsed = 0
+	ctx.clearCount = 0
+	ctx.clearElapsed = 0
+	ctx.increCount = 0
+	ctx.increElapsed = 0
 }
 
 // getContext 根据 goroutine ID 获取上下文实例。
@@ -74,7 +100,9 @@ func Watch(writable ...bool) int {
 	}
 	contextMap.Store(gid, ctx)
 
-	XLog.Info("XOrm.Watch: start.")
+	XLog.Tag().Set("Context", XString.ToString(sid))
+	XLog.Tag().Set("Go", XString.ToString(int(gid)))
+	XLog.Info("XOrm.Watch: context has been started.")
 	return sid
 }
 
@@ -94,15 +122,35 @@ func Defer() {
 		return
 	} else {
 		ctx := val.(*context)
-		var commitCost int = 0
-		var commitCount int = 0
+		var selfCost int = 0
 		defer func() {
-			otherCost := XTime.GetMicrosecond() - ctx.time - commitCost
-			XLog.Info("XOrm.Defer: [Total:%.2fms] [Commit(%v):%.2fms] [Other:%.2fms]",
-				float64((XTime.GetMicrosecond()-ctx.time)/1e3),
-				commitCount,
-				float64(commitCost)/1e3,
-				float64(otherCost)/1e3)
+			if XLog.Able(XLog.LevelInfo) {
+				otherCost := XTime.GetMicrosecond() - ctx.time - selfCost
+				var crudLog string
+				if ctx.readCount > 0 {
+					crudLog += fmt.Sprintf("[Read(%v): %.2fms] ", ctx.readCount, float64(ctx.readElapsed)/1e3)
+				}
+				if ctx.listCount > 0 {
+					crudLog += fmt.Sprintf("[List(%v): %.2fms] ", ctx.listCount, float64(ctx.listElapsed)/1e3)
+				}
+				if ctx.writeCount > 0 {
+					crudLog += fmt.Sprintf("[Write(%v): %.2fms] ", ctx.writeCount, float64(ctx.writeElapsed)/1e3)
+				}
+				if ctx.deleteCount > 0 {
+					crudLog += fmt.Sprintf("[Delete(%v): %.2fms] ", ctx.deleteCount, float64(ctx.deleteElapsed)/1e3)
+				}
+				if ctx.clearCount > 0 {
+					crudLog += fmt.Sprintf("[Clear(%v): %.2fms] ", ctx.clearCount, float64(ctx.clearElapsed)/1e3)
+				}
+				if ctx.increCount > 0 {
+					crudLog += fmt.Sprintf("[Incre(%v): %.2fms] ", ctx.increCount, float64(ctx.increElapsed)/1e3)
+				}
+				XLog.Info("XOrm.Defer: context has been deferred, elapsed %.2fms for %v[Self: %.2fms] [Other: %.2fms].",
+					float64((XTime.GetMicrosecond()-ctx.time)/1e3),
+					crudLog,
+					float64(selfCost)/1e3,
+					float64(otherCost)/1e3)
+			}
 			ctx.reset()
 			contextPool.Put(ctx)
 		}()
@@ -115,7 +163,7 @@ func Defer() {
 		if scache != nil {
 			if ctx.writable {
 				batch = commitBatchPool.Get().(*commitBatch)
-				tag := XLog.Tag() // 和会话线程保持一致的日志标签
+				tag := XLog.Tag() // 保持和上下文一致的日志标签
 				if tag != nil {
 					batch.tag = tag.Clone()
 				} else {
@@ -213,7 +261,6 @@ func Defer() {
 					for _, objs := range chunk {
 						if len(objs) > 0 {
 							batch.objects = append(batch.objects, objs...)
-							commitCount += len(objs)
 						}
 					}
 				}
@@ -240,7 +287,7 @@ func Defer() {
 			if len(batch.objects) > 0 {
 				batch.submit()
 			}
-			commitCost = XTime.GetMicrosecond() - batch.time
+			selfCost = XTime.GetMicrosecond() - batch.time
 		}
 	}
 }

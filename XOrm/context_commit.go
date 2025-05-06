@@ -200,7 +200,7 @@ func setupCommit(prefs XPrefs.IBase) {
 // commitBatch 定义了一批需要处理的数据对象，用于批量异步处理数据变更。
 type commitBatch struct {
 	tag         *XLog.LogTag                                  // 日志标签，用于追踪批次处理
-	time        int                                           // 批次创建时间（微秒）
+	time        int                                           // 批次创建时间
 	objects     []*sessionObject                              // 待处理的对象列表
 	prehandler  func(batch *commitBatch, sobj *sessionObject) // 预处理函数，在处理对象前调用
 	posthandler func(batch *commitBatch, sobj *sessionObject) // 后处理函数，在处理对象后调用
@@ -247,7 +247,7 @@ func (cb *commitBatch) push(queueID int) {
 	if cb.tag != nil {
 		XLog.Watch(cb.tag)
 	}
-	waitTime := XTime.GetMicrosecond() - cb.time
+	penddingTime := XTime.GetMicrosecond() - cb.time
 	nowTime := XTime.GetMicrosecond()
 
 	// 优先处理清除操作，尽早释放全局锁，提高效率
@@ -270,11 +270,8 @@ func (cb *commitBatch) push(queueID int) {
 		}
 	}
 
-	costTime := XTime.GetMicrosecond() - nowTime
-	XLog.Notice("XOrm.Commit.Push: [Finish] [Cost:%.2fms] [Wait:%.2fms] pushed %v object(s).",
-		float64(costTime)/1e3,
-		float64(waitTime)/1e3,
-		len(cb.objects))
+	elapsedTime := XTime.GetMicrosecond() - nowTime
+	XLog.Notice("XOrm.Commit.Push: pushed %v object(s), elapsed %.2fms, pending %.2fms.", len(cb.objects), float64(elapsedTime)/1e3, float64(penddingTime)/1e3)
 
 	if cb.tag != nil {
 		XLog.Defer()
@@ -299,16 +296,16 @@ func (cb *commitBatch) handle(sobj *sessionObject, queueID int) {
 	action := ""
 	if sobj.create {
 		obj.Write()
-		action = "Create"
+		action = "create"
 	} else if sobj.delete {
 		obj.Delete()
-		action = "Delete"
+		action = "delete"
 	} else if sobj.clear != nil {
 		obj.Clear(sobj.clear)
-		action = "Clear"
+		action = "clear"
 	} else {
 		obj.Write()
-		action = "Update"
+		action = "update"
 	}
 
 	// 回调后处理函数。
@@ -324,7 +321,7 @@ func (cb *commitBatch) handle(sobj *sessionObject, queueID int) {
 
 	if action != "" {
 		t2 := XTime.GetMicrosecond()
-		XLog.Notice("XOrm.Commit.Push: [%v] [Cost:%.2fms] %v: %v.", action, float64(t2-startTime)/1e3, key, obj.Json())
+		XLog.Notice("XOrm.Commit.Push: %v %v elapsed %.2fms, object: %v.", action, key, float64(t2-startTime)/1e3, obj.Json())
 	}
 }
 
@@ -346,10 +343,8 @@ func Flush(gid ...int64) {
 					if sig != nil {
 						wg := &sync.WaitGroup{}
 						wg.Add(1)
-						select {
-						case sig <- wg:
-							wg.Wait()
-						}
+						sig <- wg
+						wg.Wait()
 						XLog.Notice("XOrm.Flush: batches of commit queue-%v has been flushed.", index)
 					}
 				}
@@ -362,10 +357,8 @@ func Flush(gid ...int64) {
 			if sig != nil {
 				wg := &sync.WaitGroup{}
 				wg.Add(1)
-				select {
-				case sig <- wg:
-					wg.Wait()
-				}
+				sig <- wg
+				wg.Wait()
 				XLog.Notice("XOrm.Flush: batches of commit queue-%v has been flushed.", queueID)
 			}
 		}
