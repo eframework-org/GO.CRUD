@@ -197,7 +197,7 @@ func Defer() {
 										}
 										return true
 									})
-									if deleteKeys != nil && len(deleteKeys) > 0 {
+									if len(deleteKeys) > 0 {
 										for _, key := range deleteKeys {
 											gcache.Delete(key) // 同步被删除的数据至全局内存
 										}
