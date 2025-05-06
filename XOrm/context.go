@@ -100,8 +100,12 @@ func Watch(writable ...bool) int {
 	}
 	contextMap.Store(gid, ctx)
 
-	XLog.Tag().Set("Context", XString.ToString(sid))
-	XLog.Tag().Set("Go", XString.ToString(int(gid)))
+	tag := XLog.Tag()
+	if tag != nil { // 设置日志标签
+		tag.Set("Context", XString.ToString(sid))
+		tag.Set("Go", XString.ToString(int(gid)))
+	}
+
 	XLog.Info("XOrm.Watch: context has been started.")
 	return sid
 }
@@ -122,7 +126,9 @@ func Defer() {
 		return
 	} else {
 		ctx := val.(*context)
+		startTime := XTime.GetMicrosecond()
 		var selfCost int = 0
+
 		defer func() {
 			if XLog.Able(XLog.LevelInfo) {
 				otherCost := XTime.GetMicrosecond() - ctx.time - selfCost
@@ -169,7 +175,6 @@ func Defer() {
 				} else {
 					batch.tag = tag
 				}
-				batch.time = XTime.GetMicrosecond()
 				batch.posthandler = func(batch *commitBatch, sobj *sessionObject) {
 					obj := sobj.raw
 					if sobj.delete || sobj.clear != nil {
@@ -287,7 +292,7 @@ func Defer() {
 			if len(batch.objects) > 0 {
 				batch.submit()
 			}
-			selfCost = XTime.GetMicrosecond() - batch.time
+			selfCost = XTime.GetMicrosecond() - startTime
 		}
 	}
 }
