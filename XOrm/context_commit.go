@@ -247,7 +247,7 @@ func (cb *commitBatch) push(queueID int) {
 	if cb.tag != nil {
 		XLog.Watch(cb.tag)
 	}
-	penddingTime := XTime.GetMicrosecond() - cb.time
+	pendingTime := XTime.GetMicrosecond() - cb.time
 	nowTime := XTime.GetMicrosecond()
 
 	// 优先处理清除操作，尽早释放全局锁，提高效率
@@ -271,7 +271,7 @@ func (cb *commitBatch) push(queueID int) {
 	}
 
 	elapsedTime := XTime.GetMicrosecond() - nowTime
-	XLog.Notice("XOrm.Commit.Push: processed %v object(s), elapsed %.2fms, pending %.2fms.", len(cb.objects), float64(elapsedTime)/1e3, float64(penddingTime)/1e3)
+	XLog.Notice("XOrm.Commit.Push: processed %v object(s), elapsed %.2fms, pending %.2fms.", len(cb.objects), float64(elapsedTime)/1e3, float64(pendingTime)/1e3)
 
 	if cb.tag != nil {
 		XLog.Defer()
