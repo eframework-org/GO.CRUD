@@ -5,8 +5,6 @@
 package XOrm
 
 import (
-	"sync/atomic"
-
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
@@ -39,8 +37,8 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 
 	time := XTime.GetMicrosecond()
 	defer func() {
-		atomic.AddInt64(&ctx.readElapsed, int64(XTime.GetMicrosecond()-time))
-		atomic.AddInt64(&ctx.readCount, 1)
+		ctx.readElapsed += XTime.GetMicrosecond() - time
+		ctx.readCount++
 	}()
 
 	writable := meta.writable

@@ -48,8 +48,8 @@ func Incre(model IModel, columnAndDelta ...any) int {
 
 	time := XTime.GetMicrosecond()
 	defer func() {
-		atomic.AddInt64(&ctx.increElapsed, int64(XTime.GetMicrosecond()-time))
-		atomic.AddInt64(&ctx.increCount, 1)
+		ctx.increElapsed += XTime.GetMicrosecond() - time
+		ctx.increCount++
 	}()
 
 	delta := 1

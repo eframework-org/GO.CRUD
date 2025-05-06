@@ -5,8 +5,6 @@
 package XOrm
 
 import (
-	"sync/atomic"
-
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
@@ -45,8 +43,8 @@ func Write[T IModel](model T) {
 
 	time := XTime.GetMicrosecond()
 	defer func() {
-		atomic.AddInt64(&ctx.writeElapsed, int64(XTime.GetMicrosecond()-time))
-		atomic.AddInt64(&ctx.writeCount, 1)
+		ctx.writeElapsed += XTime.GetMicrosecond() - time
+		ctx.writeCount++
 	}()
 
 	model.IsValid(true)

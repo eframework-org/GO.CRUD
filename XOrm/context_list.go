@@ -7,7 +7,6 @@ package XOrm
 import (
 	"runtime"
 	"sync"
-	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XCollect"
 	"github.com/eframework-org/GO.UTIL/XLog"
@@ -46,8 +45,8 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 
 	time := XTime.GetMicrosecond()
 	defer func() {
-		atomic.AddInt64(&ctx.listElapsed, int64(XTime.GetMicrosecond()-time))
-		atomic.AddInt64(&ctx.listCount, 1)
+		ctx.listElapsed += XTime.GetMicrosecond() - time
+		ctx.listCount++
 	}()
 
 	writable := meta.writable

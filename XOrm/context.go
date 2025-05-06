@@ -28,20 +28,20 @@ var (
 
 // context 定义了 CRUD 操作的上下文信息，用于管理操作的生命周期。
 type context struct {
-	time          int   // 操作开始时间
-	writable      bool  // 是否读写操作
-	readCount     int64 // 读取操作次数
-	readElapsed   int64 // 读取操作耗时
-	listCount     int64 // 列举操作次数
-	listElapsed   int64 // 列举操作耗时
-	writeCount    int64 // 写入操作次数
-	writeElapsed  int64 // 写入操作耗时
-	deleteCount   int64 // 删除操作次数
-	deleteElapsed int64 // 删除操作耗时
-	clearCount    int64 // 清除操作次数
-	clearElapsed  int64 // 清除操作耗时
-	increCount    int64 // 自增操作次数
-	increElapsed  int64 // 自增操作耗时
+	time          int  // 操作开始时间
+	writable      bool // 是否读写操作
+	readCount     int  // 读取操作次数
+	readElapsed   int  // 读取操作耗时
+	listCount     int  // 列举操作次数
+	listElapsed   int  // 列举操作耗时
+	writeCount    int  // 写入操作次数
+	writeElapsed  int  // 写入操作耗时
+	deleteCount   int  // 删除操作次数
+	deleteElapsed int  // 删除操作耗时
+	clearCount    int  // 清除操作次数
+	clearElapsed  int  // 清除操作耗时
+	increCount    int  // 自增操作次数
+	increElapsed  int  // 自增操作耗时
 }
 
 // reset 重置上下文状态。
@@ -131,7 +131,7 @@ func Defer() {
 
 		defer func() {
 			if XLog.Able(XLog.LevelInfo) {
-				otherCost := int64(XTime.GetMicrosecond() - ctx.time - selfCost)
+				otherCost := XTime.GetMicrosecond() - ctx.time - selfCost
 				var crudLog string
 				if ctx.readCount > 0 {
 					crudLog += fmt.Sprintf("[Read(%v):%.2fms] ", ctx.readCount, float64(ctx.readElapsed)/1e3)

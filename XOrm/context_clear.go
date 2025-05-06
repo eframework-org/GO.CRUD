@@ -6,7 +6,6 @@ package XOrm
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XTime"
@@ -49,8 +48,8 @@ func Clear[T IModel](model T, cond ...*Condition) {
 
 	time := XTime.GetMicrosecond()
 	defer func() {
-		atomic.AddInt64(&ctx.clearElapsed, int64(XTime.GetMicrosecond()-time))
-		atomic.AddInt64(&ctx.clearCount, 1)
+		ctx.clearElapsed += XTime.GetMicrosecond() - time
+		ctx.clearCount++
 	}()
 
 	model.IsValid(false)
