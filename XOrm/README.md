@@ -308,7 +308,7 @@ XOrm.Clear(user, cond) // 通过事务缓冲至提交队列中清除。
 
 // 列举操作：从缓存和远端组合数据。
 var users []*User
-cond = XOrm.Cond("age > {0} && name like {1}", 18, "%test%")
+cond = XOrm.Cond("age > {0} && name contains {1}", 18, "test")
 XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数据。
 ```
 
@@ -323,27 +323,30 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> InitOrm: 初始化Orm
+    [*] --> InitOrm: 初始化 Orm
     InitOrm --> InitModel: 注册数据模型
     InitModel --> Ready: Run
     Ready --> Watch: 监听
-    Watch --> DBTransaction: 开始会话监听
-    DBTransaction --> Defer: 提交会话操作
+    Watch --> CRUD: 开始会话监听
+    CRUD --> Defer: 结束会话监听
     Ready --> Close: 退出信号
 
     state InitOrm {
         direction TB
         [*] --> RegisterDataBase: 解析配置项
     }
+
     state InitModel {
         direction TB
         [*] --> XOrm.Meta()
     }
+
     state Watch {
         direction TB
         [*] --> XOrm.Watch()
-        XOrm.Watch() --> contextMap: 按goroutine id记录上下文
+        XOrm.Watch() --> contextMap: 按 goroutine ID 记录上下文
     }
+
     state Defer {
         direction TB
         [*] --> XOrm.Defer()
@@ -351,64 +354,21 @@ stateDiagram-v2
         缓冲至队列 --> 清除会话内存
         清除会话内存 --> [*]
     }
-    state Close{
-        direction TB
-        [*] --> Flush(): 刷新所有处理队列
-        Flush() --> [*]
-    }
+
     state Flush(){
         direction TB
         [*] --> XOrm.Flush(): 逐个刷新当前队列
         XOrm.Flush() --> 关闭队列
     }
-    缓冲至队列 --> 创建缓冲队列: 队列不存在
-    创建缓冲队列 --> 处理队列数据
-    处理队列数据 --> 关闭队列: 退出信号
-```
 
-#### 3.3 缓存策略
-```mermaid
-stateDiagram-v2
-    direction TB
-    state Context {
-        [*] --> XOrm.Write(): 数据写入
-        XOrm.Write() --> 设置全局缓存
-        设置全局缓存 --> 设置会话缓存: mode.IsValid(true)
-        设置会话缓存 --> [*]: sobj.create = true
-
-        [*] --> XOrm.Read(): 数据读取
-        XOrm.Read() --> 精确查找
-        精确查找 --> 会话缓存读取
-        会话缓存读取 --> 全局缓存读取: if sobj.delete 设置模型失效 fi
-        全局缓存读取 --> 远端数据读取: if model.IsValid() 设置全局缓存 fi
-        远端数据读取 --> [*]: 设置全局缓存 设置会话缓存
-        XOrm.Read() --> 模糊查找
-        模糊查找 --> 仅缓存查找
-        仅缓存查找 --> [*]: if 会话缓存读取 else 全局缓存读取 fi
-        模糊查找 --> 判断列举读取会话缓存
-        判断列举读取会话缓存 --> 判断列举读取全局缓存
-        判断列举读取全局缓存 --> 远端条件读取
-        远端条件读取 --> [*]
-
-        [*] --> XOrm.List(): 数据列举
-        XOrm.List() --> 列举读取会话缓存
-        列举读取会话缓存 --> 列举读取全局缓存
-        列举读取全局缓存 --> 远端列表读取
-        远端列表读取 --> [*]
-
-        [*] --> XOrm.Delete(): 数据删除
-        XOrm.Delete() --> 标记全局缓存删除
-        标记全局缓存删除 --> 标记会话缓存删除: model.IsValid(false) 
-        标记会话缓存删除 --> [*]: sobj.delete = true
-
-        [*] --> XOrm.Clear(): 数据清理
-        XOrm.Clear() --> 标记会话缓存清除
-        标记会话缓存清除 --> 标记全局缓存清除: model.IsValid(false) 
-        标记全局缓存清除 --> [*]: sobj.clear = true
-
-        [*] --> XOrm.Incre(): 索引自增
-        XOrm.Incre() --> [*]
+    state Close{
+        direction TB
+        [*] --> Flush(): 刷新所有处理队列
+        Flush() --> [*]
     }
+   
+    缓冲至队列 --> 处理队列数据
+    处理队列数据 --> 关闭队列: 退出信号
 ```
 
 ## 常见问题
@@ -434,7 +394,7 @@ XOrm 模块基于 Beego ORM 封装了单实例的缓存及会话事务功能，�
 这种封装特别适合游戏服务器等需要高性能、低延迟数据处理的场景，通过在内存中维护数据状态，最大限度减少数据库交互，同时保证数据一致性和可靠性。
 
 ### 2. XOrm CRUD 的性能如何？
-XOrm 模块在性能方面表现出色，特别是在缓存机制的加持下。以下是基于 250,000 条数据（5列）的性能测试结果：
+XOrm 模块在性能方面表现出色，特别是在缓存机制的加持下。以下是基于 250,000 条数据（5 column，localhost）的性能测试结果：
 
 | CRUD 操作/框架 | XOrm v1 | XOrm v2 | Beego SQL（原生查询） |
 |:-------:|:--------:|:-------:|:-------:|
@@ -455,7 +415,7 @@ XOrm 模块在性能方面表现出色，特别是在缓存机制的加持下。
    - 在高频访问场景下，缓存机制可以大幅减少数据库访问，降低系统负载
 
 3. 接近原生查询的性能 ：
-   - XOrm v2 的条件读取（36ms）性能已经与 Beego 原生 SQL 查询（34ms，未包含访问远端数据的网络延迟）非常接近
+   - XOrm v2 的条件读取（36ms）性能已经与 Beego 原生 SQL 查询（34ms，未计算网络延迟）非常接近
    - 在提供了丰富功能的同时，几乎不牺牲性能
 
 这些性能数据表明，XOrm 特别适合需要高性能数据处理的应用场景，如游戏服务器、实时交易系统等。

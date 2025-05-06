@@ -287,7 +287,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 
 	// 列举操作：从缓存和远端组合数据。
 	var users []*User
-	cond = XOrm.Cond("age > {0} && name like {1}", 18, "%test%")
+	cond = XOrm.Cond("age > {0} && name contains {1}", 18, "test")
 	XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数据。
 
 注意：
