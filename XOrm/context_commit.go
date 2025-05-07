@@ -191,7 +191,7 @@ func setupCommit(prefs XPrefs.IBase) {
 					}
 					return
 				case <-quit.GetQuitChannel():
-					XLog.Notice("XOrm.Commit.Setup(%v): receive signal of QUIT.", queueID)
+					XLog.Notice("XOrm.Commit.Setup(%v): receive signal of quit.", queueID)
 					return
 				}
 			}
