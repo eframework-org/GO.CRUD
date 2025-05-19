@@ -4,6 +4,7 @@
 ### 变更
 - 调整 XOrm 模块数据源配置键前缀为 Orm/Source
 - 调整 XOrm 模块提交队列容量的配置键为 Orm/Commit/Queue/Capacity
+- 优化 XOrm 模块 model_base.go 的日志输出，读取操作（Read/List/..）若发生错误，使用 Warn 级别输出，更新操作（Write/Delete/..）若发生错误，使用 Error 级别输出
 
 ## [0.0.2] - 2025-05-06
 ### 变更

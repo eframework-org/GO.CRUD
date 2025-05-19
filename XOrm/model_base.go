@@ -180,11 +180,11 @@ func (md *Model[T]) DataUnique() string {
 	if XString.IsEmpty(md.dataUnique) {
 		meta := getModelMeta(md.this)
 		if meta == nil {
-			XLog.Warn("XOrm.Model.DataUnique(%v): model info is nil.", md.this.ModelUnique())
+			XLog.Error("XOrm.Model.DataUnique(%v): model info is nil.", md.this.ModelUnique())
 			return ""
 		}
 		if meta.fields.pk == nil {
-			XLog.Warn("XOrm.Model.DataUnique(%v): primary key was not found.", md.this.ModelUnique())
+			XLog.Error("XOrm.Model.DataUnique(%v): primary key was not found.", md.this.ModelUnique())
 			return ""
 		}
 		fvalue := md.this.DataValue(meta.fields.pk.name)
@@ -219,7 +219,7 @@ func (md *Model[T]) Count(cond ...*Condition) int {
 		}
 		cnt, err := qsetter.Count()
 		if err != nil {
-			XLog.Error("XOrm.Model.Count(%v): %v", md.this.TableName(), err)
+			XLog.Warn("XOrm.Model.Count(%v): %v", md.this.TableName(), err)
 			return -1
 		} else {
 			return int(cnt)
@@ -254,7 +254,7 @@ func (md *Model[T]) Max(column ...string) int {
 		sql := fmt.Sprintf("SELECT %v FROM `%v`", name, md.this.TableName())
 		res := ormer.Raw(sql)
 		if _, err := res.Exec(); err != nil {
-			XLog.Error("XOrm.Model.Max(%v): %v", md.this.TableName(), err)
+			XLog.Warn("XOrm.Model.Max(%v): %v", md.this.TableName(), err)
 			return -1
 		}
 
@@ -295,7 +295,7 @@ func (md *Model[T]) Min(column ...string) int {
 		sql := fmt.Sprintf("SELECT %v FROM `%v`", name, md.this.TableName())
 		res := ormer.Raw(sql)
 		if _, err := res.Exec(); err != nil {
-			XLog.Error("XOrm.Model.Min(%v): %v", md.this.TableName(), err)
+			XLog.Warn("XOrm.Model.Min(%v): %v", md.this.TableName(), err)
 			return -1
 		}
 
@@ -384,7 +384,7 @@ func (md *Model[T]) Read(cond ...*Condition) bool {
 		e := qsetter.One(that)
 		md.this = that // 恢复指针
 		if e != nil {
-			XLog.Error("XOrm.Model.Read(%v): %v", md.this.TableName(), e)
+			XLog.Warn("XOrm.Model.Read(%v): %v", md.this.TableName(), e)
 			return false
 		} else {
 			md.this.IsValid(true)
@@ -405,7 +405,7 @@ func (md *Model[T]) List(rets any, cond ...*Condition) int {
 	} else {
 		val := reflect.ValueOf(rets)
 		if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Slice {
-			XLog.Error("XOrm.Model.List(%v): rets must be a pointer to a slice", md.this.TableName())
+			XLog.Error("XOrm.Model.List(%v): rets must be a pointer to a slice.", md.this.TableName())
 			return -1
 		}
 
@@ -423,7 +423,7 @@ func (md *Model[T]) List(rets any, cond ...*Condition) int {
 
 		tcount, terr := qsetter.All(val.Elem().Addr().Interface())
 		if terr != nil {
-			XLog.Error("XOrm.Model.List(%v): %v", md.this.TableName(), terr)
+			XLog.Warn("XOrm.Model.List(%v): %v", md.this.TableName(), terr)
 			return -1
 		}
 
@@ -459,11 +459,11 @@ func (md *Model[T]) Clear(cond ...*Condition) int {
 			// beego orm 的 Delete 方法不支持条件，所以需要使用主键字段 >= 0 作为条件，这样可以匹配所有记录
 			meta := getModelMeta(md.this)
 			if meta == nil {
-				XLog.Error("XOrm.Model.Clear(%v): model info is nil", md.this.TableName())
+				XLog.Error("XOrm.Model.Clear(%v): model info is nil.", md.this.TableName())
 				return -1
 			}
 			if meta.fields.pk == nil {
-				XLog.Error("XOrm.Model.Clear(%v): primary key was not found", md.this.TableName())
+				XLog.Error("XOrm.Model.Clear(%v): primary key was not found.", md.this.TableName())
 				return -1
 			}
 			ncond = Cond(fmt.Sprintf("%v >= {0}", meta.fields.pk.column), 0)
@@ -504,7 +504,7 @@ func (md *Model[T]) Clone() IModel {
 	psrc := (*T)(unsafe.Pointer(reflect.ValueOf(md.this).Pointer()))
 	pdst := (*T)(unsafe.Pointer(reflect.ValueOf(dst).Pointer()))
 	if psrc == nil || pdst == nil {
-		XLog.Error("XOrm.Model.Clone(%v): invalid pointer", md.this.TableName())
+		XLog.Error("XOrm.Model.Clone(%v): invalid pointer.", md.this.TableName())
 		return md.this
 	}
 	*pdst = *psrc
