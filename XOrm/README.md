@@ -20,7 +20,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 通过解析首选项中的配置自动初始化数据库连接。
 
 配置说明：
-- 配置键名：`Orm/<数据库类型>/<数据库别名>`
+- 配置键名：`Orm/Source/<数据库类型>/<数据库别名>`
   - 支持 MySQL、PostgreSQL、SQLite3 等（Beego ORM 支持的类型）
 - 配置参数：
   - Addr：数据源地址
@@ -30,17 +30,17 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 配置示例：
 ```json
 {
-    "Orm/MySQL/Main": {
+    "Orm/Source/MySQL/Main": {
         "Addr": "root:123456@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&loc=Local",
         "Pool": 1,
         "Conn": 1
     },
-    "Orm/PostgreSQL/Log": {
+    "Orm/Source/PostgreSQL/Log": {
         "Addr": "postgres://user:pass@localhost:5432/dbname?sslmode=disable",
         "Pool": 2,
         "Conn": 10
     },
-    "Orm/SQLite3/Type": {
+    "Orm/Source/SQLite3/Type": {
         "Addr": "file:data.db?cache=shared&mode=rwc",
         "Pool": 1,
         "Conn": 1
@@ -336,14 +336,14 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 配置参数：
 
 - `Orm/Commit/Queue`：提交队列的数量，默认为 CPU 核心数
-- `Orm/Commit/Batch`：单个队列的容量，默认为 100000
+- `Orm/Commit/Queue/Capacity`：单个队列的容量，默认为 100000
 
 配置示例：
 
 ```json
 {
     "Orm/Commit/Queue": 8,
-    "Orm/Commit/Batch": 100000
+    "Orm/Commit/Queue/Capacity": 100000
 }
 ```
 

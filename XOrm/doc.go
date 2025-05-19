@@ -16,7 +16,7 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 1. 多源配置
 
 配置说明：
-  - 配置键名：Orm/<数据库类型>/<数据库别名>
+  - 配置键名：Orm/Source/<数据库类型>/<数据库别名>
   - 支持 MySQL、PostgreSQL、SQLite3 等（Beego ORM 支持的类型）
   - 配置参数：
   - Addr：数据源地址
@@ -26,17 +26,17 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 配置示例：
 
 	{
-	    "Orm/MySQL/Main": {
+	    "Orm/Source/MySQL/Main": {
 	        "Addr": "root:123456@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&loc=Local",
 	        "Pool": 1,
 	        "Conn": 1
 	    },
-	    "Orm/PostgreSQL/Log": {
+	    "Orm/Source/PostgreSQL/Log": {
 	        "Addr": "postgres://user:pass@localhost:5432/dbname?sslmode=disable",
 	        "Pool": 2,
 	        "Conn": 10
 	    },
-	    "Orm/SQLite3/Type": {
+	    "Orm/Source/SQLite3/Type": {
 	        "Addr": "file:data.db?cache=shared&mode=rwc",
 	        "Pool": 1,
 	        "Conn": 1

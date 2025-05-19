@@ -26,8 +26,8 @@ const (
 	// commitQueueCountPrefs 定义了提交队列的数量的偏好设置键。
 	commitQueueCountPrefs = "Orm/Commit/Queue"
 
-	// commitBatchCountPrefs 定义了单个队列的容量的偏好设置键。
-	commitBatchCountPrefs = "Orm/Commit/Batch"
+	// commitQueueCapacityPrefs 定义了单个队列的容量的偏好设置键。
+	commitQueueCapacityPrefs = "Orm/Commit/Queue/Capacity"
 )
 
 var (
@@ -85,7 +85,7 @@ func setupCommit(prefs XPrefs.IBase) {
 	Close()
 
 	commitQueueCount = prefs.GetInt(commitQueueCountPrefs, commitQueueCount)
-	commitBatchCount = prefs.GetInt(commitBatchCountPrefs, commitBatchCount)
+	commitBatchCount = prefs.GetInt(commitQueueCapacityPrefs, commitBatchCount)
 
 	if commitQueueCount <= 0 {
 		commitQueueCount = runtime.NumCPU()

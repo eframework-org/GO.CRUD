@@ -31,17 +31,17 @@ func initOrm(prefs XPrefs.IBase) {
 	}
 
 	for _, key := range prefs.Keys() {
-		if !strings.HasPrefix(key, "Orm/") {
+		if !strings.HasPrefix(key, "Orm/Source") {
 			continue
 		}
 		parts := strings.Split(key, "/")
-		if len(parts) < 3 {
+		if len(parts) < 4 {
 			XLog.Panic("XOrm.Init: invalid prefs key %v.", key)
 			return
 		}
 
-		ormType := strings.ToLower(parts[1])
-		ormAlias := parts[2]
+		ormType := strings.ToLower(parts[2])
+		ormAlias := parts[3]
 
 		if base := prefs.Get(key).(XPrefs.IBase); base != nil {
 			ormAddr := base.GetString(prefsOrmAddr)

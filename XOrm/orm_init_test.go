@@ -23,7 +23,7 @@ func TestOrmInit(t *testing.T) {
 	}{
 		{
 			name: "Single",
-			prefs: XPrefs.New().Set("Orm/MySQL/myalias", XPrefs.New().
+			prefs: XPrefs.New().Set("Orm/Source/MySQL/myalias", XPrefs.New().
 				Set(prefsOrmAddr, TestOrmAddr).
 				Set(prefsOrmPool, 10).
 				Set(prefsOrmConn, 100)),
@@ -32,11 +32,11 @@ func TestOrmInit(t *testing.T) {
 		{
 			name: "Multiple",
 			prefs: XPrefs.New().
-				Set("Orm/MySQL/myalias1", XPrefs.New().
+				Set("Orm/Source/MySQL/myalias1", XPrefs.New().
 					Set(prefsOrmAddr, "root:123456@tcp(127.0.0.1:3306)/mysql?charset=utf8mb4").
 					Set(prefsOrmPool, 10).
 					Set(prefsOrmConn, 100)).
-				Set("Orm/MySQL/myalias2", XPrefs.New().
+				Set("Orm/Source/MySQL/myalias2", XPrefs.New().
 					Set(prefsOrmAddr, "root:123456@tcp(127.0.0.1:3306)/information_schema?charset=utf8mb4").
 					Set(prefsOrmPool, 20).
 					Set(prefsOrmConn, 200)),
@@ -45,7 +45,7 @@ func TestOrmInit(t *testing.T) {
 		{
 			name: "Invalid",
 			prefs: XPrefs.New().
-				Set("Orm/MySQL/myalias3", XPrefs.New().
+				Set("Orm/Source/MySQL/myalias3", XPrefs.New().
 					Set(prefsOrmAddr, "root:wrongpass@tcp(127.0.0.1:3306)/mysql?charset=utf8mb4").
 					Set(prefsOrmPool, 10).
 					Set(prefsOrmConn, 100)),
