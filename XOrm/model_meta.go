@@ -39,8 +39,6 @@ type beegoModelInfo struct {
 	fields    *beegoFieldMap // 字段映射
 	addrField reflect.Value  // 模型地址
 	uniques   []string       // 唯一索引
-	cache     bool           // 是否缓存
-	writable  bool           // 是否可写
 }
 
 // beegoFieldMap 定义了 beego/orm 的内部字段映射结构。
@@ -100,15 +98,25 @@ type beegoFieldInfo struct {
 	dbType              string              // 数据库类型
 }
 
+// modelMeta 定义了模型的扩展信息。
+type modelMeta struct {
+	*beegoModelInfo      // 继承 beego/orm 的模型信息
+	cache           bool // 是否缓存
+	writable        bool // 是否可写
+}
+
+// modelMetaCache 存储所有已注册模型的信息。
+var modelMetaCache map[string]*modelMeta
+
 // modelMetaMutex 用于保护模型缓存的互斥锁。
 var modelMetaMutex sync.Mutex
 
 // getModelMeta 获取指定模型的信息。
 // model 为模型实例。
 // 返回模型的描述信息，如果模型未注册则返回 nil。
-func getModelMeta(model IModel) *beegoModelInfo {
+func getModelMeta(model IModel) *modelMeta {
 	if model != nil {
-		return beegoModelCache.cache[model.TableName()]
+		return modelMetaCache[model.TableName()]
 	}
 	return nil
 }
@@ -127,8 +135,12 @@ func Meta(model IModel, cache bool, writable bool) {
 	modelMetaMutex.Lock()
 	defer modelMetaMutex.Unlock()
 
+	if len(beegoModelCache.cache) == 0 {
+		modelMetaCache = make(map[string]*modelMeta)
+	}
+
+	id := model.TableName()
 	orm.RegisterModel(model)
-	md := beegoModelCache.cache[model.TableName()]
-	md.cache = cache
-	md.writable = writable
+	meta := &modelMeta{beegoModelInfo: beegoModelCache.cache[id], cache: cache, writable: writable}
+	modelMetaCache[id] = meta
 }

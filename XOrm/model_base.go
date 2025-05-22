@@ -577,7 +577,7 @@ func (md *Model[T]) Matchs(cond ...*Condition) bool {
 }
 
 // doMatch 内部匹配方法
-func doMatch(model IModel, meta *beegoModelInfo, conds []beegoCondValue) bool {
+func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue) bool {
 	if conds == nil {
 		return false
 	}
@@ -616,7 +616,7 @@ func doMatch(model IModel, meta *beegoModelInfo, conds []beegoCondValue) bool {
 //
 //	整型支持: Int,Int32,Int64
 //	浮点支持: Float32,Float64
-func doComp(model IModel, meta *beegoModelInfo, cond beegoCondValue) bool {
+func doComp(model IModel, meta *modelMeta, cond beegoCondValue) bool {
 	if !isValidCondition(cond) {
 		return false
 	}
@@ -661,7 +661,7 @@ func parseCondition(cond beegoCondValue) (field, operator string) {
 }
 
 // 获取字段值
-func getFieldValue(model IModel, meta *beegoModelInfo, field string) any {
+func getFieldValue(model IModel, meta *modelMeta, field string) any {
 	if fmeta := meta.fields.columns[field]; fmeta != nil {
 		return model.DataValue(fmeta.name)
 	}
