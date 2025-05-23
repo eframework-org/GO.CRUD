@@ -102,7 +102,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 		if isSessionListed(gid, model) { // 会话内存被列举过
 			scache := getSessionCache(gid, model)
 			if scache != nil { // 会话内存读取
-				concurrentRange(scache, func(index int, key, value any) bool {
+				scache.RangeConcurrent(func(index int, key, value any) bool {
 					sobj := value.(*sessionObject)
 					if !sobj.ptr.IsValid() { // 忽略无效数据
 						// 已经被标记删除，则不读取
@@ -117,7 +117,7 @@ func Read[T IModel](model T, writableAndCond ...any) T {
 		} else if isGlobalListed(model) { // 全局内存被列举过
 			gcache := getGlobalCache(model)
 			if gcache != nil { // 全局内存读取
-				concurrentRange(gcache, func(index int, key, value any) bool {
+				gcache.RangeConcurrent(func(index int, key, value any) bool {
 					gobj := value.(IModel)
 					if !gobj.IsValid() {
 						// 已经被标记删除，则不读取

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/eframework-org/GO.UTIL/XCollect"
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XString"
 	"github.com/eframework-org/GO.UTIL/XTime"
@@ -168,9 +169,9 @@ func Defer() {
 		}()
 
 		var batch *commitBatch
-		var scache *sync.Map
+		var scache *XCollect.Map
 		if tmp, _ := sessionCacheMap.LoadAndDelete(gid); tmp != nil {
-			scache = tmp.(*sync.Map)
+			scache = tmp.(*XCollect.Map)
 		}
 		if scache != nil {
 			if ctx.writable {
@@ -223,10 +224,10 @@ func Defer() {
 				}
 
 				var batchChunks [][][]*sessionObject
-				concurrentRange(scache, func(index1 int, key1, value1 any) bool {
-					watch := value1.(*sync.Map)
+				scache.RangeConcurrent(func(chunk1 int, key1, value1 any) bool {
+					watch := value1.(*XCollect.Map)
 					if watch != nil {
-						concurrentRange(watch, func(index2 int, key2, value2 any) bool {
+						watch.RangeConcurrent(func(chunk2 int, key2, value2 any) bool {
 							sobj := value2.(*sessionObject)
 							if sobj == nil {
 								return true
@@ -259,11 +260,11 @@ func Defer() {
 										globalLock(sobj.ptr)
 									}
 
-									batchChunks[index1][index2] = append(batchChunks[index1][index2], sobj)
+									batchChunks[chunk1][chunk2] = append(batchChunks[chunk1][chunk2], sobj)
 								}
 							}
 							return true
-						}, func(chunk2 int) { batchChunks[index1] = make([][]*sessionObject, chunk2) })
+						}, func(chunk2 int) { batchChunks[chunk1] = make([][]*sessionObject, chunk2) })
 					}
 					return true
 				}, func(chunk1 int) { batchChunks = make([][][]*sessionObject, chunk1) })
@@ -276,10 +277,10 @@ func Defer() {
 					}
 				}
 			} else {
-				scache.Range(func(key, value any) bool {
-					watch := value.(*sync.Map)
+				scache.RangeConcurrent(func(_ int, key, value any) bool {
+					watch := value.(*XCollect.Map)
 					if watch != nil {
-						watch.Range(func(key, value any) bool {
+						watch.RangeConcurrent(func(_ int, key, value any) bool {
 							sobj := value.(*sessionObject)
 							if sobj != nil {
 								sobj.reset()

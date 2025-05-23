@@ -57,7 +57,7 @@ func Clear[T IModel](model T, cond ...*Condition) {
 	var marked sync.Map
 	scache := getSessionCache(gid, model)
 	if scache != nil { // 标记相关的会话内存为无效，避免再次读取
-		concurrentRange(scache, func(index int, key, value any) bool {
+		scache.RangeConcurrent(func(index int, key, value any) bool {
 			if value.(*sessionObject).ptr.Matchs(cond...) {
 				value.(*sessionObject).ptr.IsValid(false)
 				marked.Store(key, 1)
@@ -69,7 +69,7 @@ func Clear[T IModel](model T, cond ...*Condition) {
 	if meta.cache { // 标记相关的全局内存为无效，避免再次读取
 		gcache := getGlobalCache(model)
 		if gcache != nil {
-			concurrentRange(gcache, func(index int, key, value any) bool {
+			gcache.RangeConcurrent(func(index int, key, value any) bool {
 				gobj := value.(IModel)
 				if gobj.Matchs(cond...) {
 					gobj.IsValid(false)

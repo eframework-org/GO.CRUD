@@ -6,9 +6,7 @@ package XOrm
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -245,71 +243,6 @@ func TestContextCache(t *testing.T) {
 		// 验证锁部分内容
 		assert.Contains(t, ctt, "testcache_model1", "输出应包含第一个模型的锁信息")
 		assert.Contains(t, ctt, "testcache_model2", "输出应包含第二个模型的锁信息")
-	})
-
-	t.Run("Range", func(t *testing.T) {
-		// 准备测试数据
-		testMap := &sync.Map{}
-		for i := range 100000 {
-			testMap.Store(fmt.Sprintf("key_%d", i), i)
-		}
-
-		// 测试基本遍历功能
-		t.Run("Basic", func(t *testing.T) {
-			var count int64
-			concurrentRange(testMap, func(index int, key, value any) bool {
-				atomic.AddInt64(&count, 1)
-				return true
-			})
-			assert.Equal(t, int64(100000), count, "应该遍历所有 100000 个元素")
-		})
-
-		// 测试提前终止遍历
-		t.Run("Break", func(t *testing.T) {
-			var count int64
-			concurrentRange(testMap, func(index int, key, value any) bool {
-				atomic.AddInt64(&count, 1)
-				if count > 50000 {
-					return false
-				}
-				return true
-			})
-			assert.Equal(t, true, count > 50000 && count <= 100000, "应该在遍历多于 50000 个元素后停止")
-		})
-
-		// 测试 chunk 回调函数
-		t.Run("Chunk", func(t *testing.T) {
-			var actualChunk int
-			concurrentRange(testMap, func(index int, key, value any) bool {
-				return true
-			}, func(delta int) {
-				actualChunk += delta
-			})
-			assert.True(t, actualChunk > 0, "chunk 数量应该大于 0")
-			assert.True(t, actualChunk <= runtime.NumCPU(), "chunk 数量不应超过 CPU 核心数")
-		})
-
-		// 测试空Map
-		t.Run("Empty", func(t *testing.T) {
-			emptyMap := &sync.Map{}
-			var count int64
-			concurrentRange(emptyMap, func(index int, key, value any) bool {
-				atomic.AddInt64(&count, 1)
-				return true
-			})
-			assert.Equal(t, int64(0), count, "空Map不应有任何遍历")
-		})
-
-		// 测试 nil
-		t.Run("Nil", func(t *testing.T) {
-			var nilMap *sync.Map = nil
-			var count int64
-			concurrentRange(nilMap, func(index int, key, value any) bool {
-				atomic.AddInt64(&count, 1)
-				return true
-			})
-			assert.Equal(t, int64(0), count, "nil Map不应有任何遍历")
-		})
 	})
 }
 

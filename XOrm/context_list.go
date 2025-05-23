@@ -67,7 +67,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 		scache := getSessionCache(gid, model)
 		if scache != nil {
 			var chunks [][]T
-			concurrentRange(scache, func(index int, key, value any) bool {
+			scache.RangeConcurrent(func(index int, key, value any) bool {
 				sobj := value.(*sessionObject)
 				if !sobj.ptr.IsValid() { // 忽略无效数据
 				} else if sobj.ptr.Matchs(cond) {
@@ -85,7 +85,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 		scache := getSessionCache(gid, model)
 		if gcache != nil {
 			var chunks [][]T
-			concurrentRange(gcache, func(index int, key, value any) bool {
+			gcache.RangeConcurrent(func(index int, key, value any) bool {
 				gobj := value.(IModel)
 				if !gobj.IsValid() {
 					// 已经被标记删除，则不读取
@@ -123,7 +123,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 			// 多线程处理数据
 			dataCount := len(frets)
 			var workerCount = runtime.NumCPU()
-			requiredCount := (dataCount + concurrentRangeChunk - 1) / concurrentRangeChunk
+			requiredCount := (dataCount + 1000 - 1) / 1000
 			if requiredCount < workerCount {
 				workerCount = requiredCount
 			}
@@ -229,7 +229,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 			if scache != nil { // 遍历会话内存
 				var chunks [][]T
 				var chunkValids [][]string
-				concurrentRange(scache, func(index int, key, value any) bool {
+				scache.RangeConcurrent(func(index int, key, value any) bool {
 					skey := key.(string)
 					sobj := value.(*sessionObject)
 					if !sobj.ptr.IsValid() { // 忽略无效数据
@@ -256,7 +256,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 				if gcache != nil { // 遍历全局内存
 					added := new(sync.Map)
 
-					concurrentRange(gcache, func(index int, key, value any) bool {
+					gcache.RangeConcurrent(func(index int, key, value any) bool {
 						gkey := key.(string)
 						gobj := value.(IModel)
 						if !gobj.IsValid() {
