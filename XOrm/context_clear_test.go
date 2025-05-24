@@ -24,15 +24,15 @@ func TestContextClear(t *testing.T) {
 		{false, false},
 	}
 
-	defer ResetContext(t)
-	defer ResetBaseTest(t)
+	defer ResetContext()
+	defer ResetBaseTest()
 
 	model := NewTestBaseModel()
 
 	for _, test := range tests {
-		ResetContext(t)
-		ResetBaseTest(t)
-		SetupBaseTest(t, test.cache, test.writable)
+		ResetContext()
+		ResetBaseTest()
+		SetupBaseTest(test.cache, test.writable)
 
 		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
 			gid := goid.Get()

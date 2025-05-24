@@ -17,13 +17,13 @@ import (
 
 // TestContextCache 测试缓存操作。
 func TestContextCache(t *testing.T) {
-	defer ResetContext(t)
+	defer ResetContext()
 
 	models := []IModel{
 		XObject.New[TestCacheModel1](),
 		XObject.New[TestCacheModel2](),
 	}
-	ResetBaseTest(t)
+	ResetBaseTest()
 	for _, model := range models {
 		Meta(model, true, false)
 	}
@@ -66,8 +66,8 @@ func TestContextCache(t *testing.T) {
 	})
 
 	t.Run("Global", func(t *testing.T) {
-		defer ResetContext(t)
-		ResetContext(t)
+		defer ResetContext()
+		ResetContext()
 
 		wg := sync.WaitGroup{}
 		for i := range 100 {
@@ -170,7 +170,7 @@ func TestContextCache(t *testing.T) {
 	})
 
 	t.Run("Dump", func(t *testing.T) {
-		ResetContext(t)
+		ResetContext()
 
 		wg := sync.WaitGroup{}
 		for i, model := range models {
@@ -206,8 +206,8 @@ func TestContextCache(t *testing.T) {
 	})
 
 	t.Run("Print", func(t *testing.T) {
-		defer ResetContext(t)
-		ResetContext(t)
+		defer ResetContext()
+		ResetContext()
 
 		for i, model := range models {
 			data := model.Clone().(TestCacheModel)
@@ -247,7 +247,7 @@ func TestContextCache(t *testing.T) {
 }
 
 // ResetContext 重置会话上下文。
-func ResetContext(t *testing.T) {
+func ResetContext() {
 	Dump()
 }
 

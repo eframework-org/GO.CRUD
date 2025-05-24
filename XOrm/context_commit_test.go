@@ -61,11 +61,11 @@ func TestContextCommit(t *testing.T) {
 	})
 
 	t.Run("Commit", func(t *testing.T) {
-		defer ResetBaseTest(t)
+		defer ResetBaseTest()
 		defer setupCommit(XPrefs.Asset())
 
-		ResetBaseTest(t)
-		SetupBaseTest(t, false, true)
+		ResetBaseTest()
+		SetupBaseTest(false, true)
 		setupCommit(XPrefs.Asset())
 
 		model := NewTestBaseModel()
@@ -196,11 +196,11 @@ func TestContextCommit(t *testing.T) {
 	})
 
 	t.Run("Metrics", func(t *testing.T) {
-		defer ResetBaseTest(t)
+		defer ResetBaseTest()
 		defer setupCommit(XPrefs.Asset())
 
-		ResetBaseTest(t)
-		SetupBaseTest(t, false, true)
+		ResetBaseTest()
+		SetupBaseTest(false, true)
 		setupCommit(XPrefs.Asset())
 
 		gid := goid.Get()
@@ -232,11 +232,11 @@ func TestContextCommit(t *testing.T) {
 	})
 
 	t.Run("Flush", func(t *testing.T) {
-		defer ResetBaseTest(t)
+		defer ResetBaseTest()
 		defer setupCommit(XPrefs.Asset())
 
-		ResetBaseTest(t)
-		SetupBaseTest(t, false, true)
+		ResetBaseTest()
+		SetupBaseTest(false, true)
 		setupCommit(XPrefs.Asset())
 
 		model := NewTestBaseModel()

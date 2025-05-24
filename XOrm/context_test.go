@@ -15,8 +15,8 @@ import (
 
 // TestContext 测试上下文操作。
 func TestContext(t *testing.T) {
-	defer ResetContext(t)
-	defer ResetBaseTest(t)
+	defer ResetContext()
+	defer ResetBaseTest()
 
 	model := NewTestBaseModel()
 	tests := []struct {
@@ -31,9 +31,9 @@ func TestContext(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		ResetContext(t)
-		ResetBaseTest(t)
-		SetupBaseTest(t, test.cache, test.writable)
+		ResetContext()
+		ResetBaseTest()
+		SetupBaseTest(test.cache, test.writable)
 
 		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
 			var wg sync.WaitGroup

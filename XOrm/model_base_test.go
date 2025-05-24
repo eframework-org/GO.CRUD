@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/beego/beego/v2/client/orm"
+	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XObject"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -67,21 +68,21 @@ func NewTestBaseModel() *TestBaseModel {
 var setupDatabaseOnce sync.Once
 
 // SetupBaseTest 设置测试数据库。
-func SetupBaseTest(t *testing.T, cacheAndWritable ...bool) {
+func SetupBaseTest(cacheAndWritable ...bool) {
 	// 连接测试数据库
 	testDatabase, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("连接测试数据库失败: %v", err)
+		XLog.Panic("连接测试数据库失败: %v", err)
 	}
 	defer testDatabase.Close()
 
 	// 创建测试表
 	if _, err := testDatabase.Exec(TestDropTableSQL); err != nil {
-		t.Fatalf("删除测试表失败: %v", err)
+		XLog.Panic("删除测试表失败: %v", err)
 	}
 	if _, err := testDatabase.Exec(TestCreateTableSQL); err != nil {
-		t.Fatalf("创建测试表失败: %v", err)
+		XLog.Panic("创建测试表失败: %v", err)
 	}
 
 	// 注册数据库
@@ -89,7 +90,7 @@ func SetupBaseTest(t *testing.T, cacheAndWritable ...bool) {
 		if err := orm.RegisterDataBase(TestAliasName, "mysql",
 			fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4",
 				TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName)); err != nil {
-			t.Fatalf("注册数据库失败: %v", err)
+			XLog.Panic("注册数据库失败: %v", err)
 		}
 	})
 
@@ -106,17 +107,17 @@ func SetupBaseTest(t *testing.T, cacheAndWritable ...bool) {
 }
 
 // ResetBaseTest 删除测试数据库。
-func ResetBaseTest(t *testing.T) {
+func ResetBaseTest() {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("连接测试数据库失败: %v", err)
+		XLog.Panic("连接测试数据库失败: %v", err)
 	}
 	defer db.Close()
 
 	// 清理测试数据
 	if _, err := db.Exec(TestDropTableSQL); err != nil {
-		t.Fatalf("清理测试表失败: %v", err)
+		XLog.Panic("清理测试表失败: %v", err)
 	}
 
 	// 清理注册信息
@@ -124,21 +125,21 @@ func ResetBaseTest(t *testing.T) {
 }
 
 // ClearBaseTest 清空测试数据库。
-func ClearBaseTest(t *testing.T) {
+func ClearBaseTest() {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
 		TestDatabaseUser, TestDatabasePass, TestDatabaseHost, TestDatabasePort, TestDatabaseName))
 	if err != nil {
-		t.Fatalf("连接测试数据库失败: %v", err)
+		XLog.Panic("连接测试数据库失败: %v", err)
 	}
 	defer db.Close()
 
 	if _, err := db.Exec(TestTruncateTableSQL); err != nil {
-		t.Fatalf("清空测试表失败: %v", err)
+		XLog.Panic("清空测试表失败: %v", err)
 	}
 }
 
 // WriteBaseTest 写入测试数据库。
-func WriteBaseTest(t *testing.T, count int) []*TestBaseModel {
+func WriteBaseTest(count int) []*TestBaseModel {
 	var models []*TestBaseModel
 	for i := 1; i <= count; i++ {
 		model := NewTestBaseModel()
@@ -149,7 +150,7 @@ func WriteBaseTest(t *testing.T, count int) []*TestBaseModel {
 		model.BoolVal = i%2 == 0
 
 		if writeCount := model.Write(); writeCount <= 0 {
-			t.Fatalf("插入测试数据 %d 失败", i)
+			XLog.Panic("插入测试数据 %d 失败", i)
 		}
 		models = append(models, model)
 	}
@@ -160,9 +161,9 @@ func WriteBaseTest(t *testing.T, count int) []*TestBaseModel {
 func TestModelBasic(t *testing.T) {
 	// 测试写入
 	t.Run("Write", func(t *testing.T) {
-		SetupBaseTest(t)
-		defer ResetBaseTest(t)
-		ResetContext(t)
+		SetupBaseTest()
+		defer ResetBaseTest()
+		ResetContext()
 
 		model := NewTestBaseModel()
 		model.IntVal = 1
@@ -178,10 +179,10 @@ func TestModelBasic(t *testing.T) {
 
 	// 测试读取
 	t.Run("Read", func(t *testing.T) {
-		SetupBaseTest(t)
-		defer ResetBaseTest(t)
-		ResetContext(t)
-		models := WriteBaseTest(t, 5)
+		SetupBaseTest()
+		defer ResetBaseTest()
+		ResetContext()
+		models := WriteBaseTest(5)
 
 		// 测试主键读取
 		nmodel := NewTestBaseModel()
@@ -207,11 +208,11 @@ func TestModelBasic(t *testing.T) {
 
 	// 测试删除
 	t.Run("Delete", func(t *testing.T) {
-		SetupBaseTest(t)
-		defer ResetBaseTest(t)
-		ResetContext(t)
+		SetupBaseTest()
+		defer ResetBaseTest()
+		ResetContext()
 
-		model := WriteBaseTest(t, 1)[0]
+		model := WriteBaseTest(1)[0]
 		count := model.Delete()
 		if count <= 0 {
 			t.Error("通过主键删除失败")
@@ -224,11 +225,11 @@ func TestModelBasic(t *testing.T) {
 
 // TestModelList 测试列举操作。
 func TestModelList(t *testing.T) {
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetContext(t)
+	SetupBaseTest()
+	defer ResetBaseTest()
+	ResetContext()
 
-	models := WriteBaseTest(t, 5)
+	models := WriteBaseTest(5)
 	model := NewTestBaseModel()
 
 	// 测试Count
@@ -316,7 +317,7 @@ func TestModelList(t *testing.T) {
 		}
 
 		// 重新准备测试数据
-		models = WriteBaseTest(t, 5)
+		models = WriteBaseTest(5)
 
 		// 测试带条件的Clear
 		cond := Cond("int_val > {0}", 3)
@@ -332,9 +333,9 @@ func TestModelList(t *testing.T) {
 
 // TestModelUtility 测试工具方法。
 func TestModelUtility(t *testing.T) {
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetContext(t)
+	SetupBaseTest()
+	defer ResetBaseTest()
+	ResetContext()
 
 	model := NewTestBaseModel()
 	model.ID = 1
@@ -499,11 +500,11 @@ func TestModelUtility(t *testing.T) {
 
 // TestModelMatchs 测试匹配操作。
 func TestModelMatchs(t *testing.T) {
-	SetupBaseTest(t)
-	defer ResetBaseTest(t)
-	ResetContext(t)
+	SetupBaseTest()
+	defer ResetBaseTest()
+	ResetContext()
 
-	models := WriteBaseTest(t, 5)
+	models := WriteBaseTest(5)
 
 	// 测试简单条件匹配
 	t.Run("Simple", func(t *testing.T) {

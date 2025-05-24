@@ -14,12 +14,12 @@ import (
 
 // TestContextRead 测试读取操作。
 func TestContextRead(t *testing.T) {
-	defer ResetContext(t)
-	defer ResetBaseTest(t)
+	defer ResetContext()
+	defer ResetBaseTest()
 
 	model := NewTestBaseModel()
-	ResetBaseTest(t)
-	SetupBaseTest(t)
+	ResetBaseTest()
+	SetupBaseTest()
 
 	tests := []struct {
 		name       string
@@ -72,7 +72,7 @@ func TestContextRead(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ResetContext(t)
+			ResetContext()
 
 			var wg sync.WaitGroup
 			for i := range 10 {

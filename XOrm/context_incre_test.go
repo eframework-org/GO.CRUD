@@ -25,16 +25,16 @@ func TestContextIncre(t *testing.T) {
 		{false, false},
 	}
 
-	defer ResetContext(t)
-	defer ResetBaseTest(t)
+	defer ResetContext()
+	defer ResetBaseTest()
 
 	model := NewTestBaseModel()
 
 	for _, test := range tests {
-		ResetContext(t)
-		ResetBaseTest(t)
-		SetupBaseTest(t, test.cache, test.writable)
-		WriteBaseTest(t, 1000)
+		ResetContext()
+		ResetBaseTest()
+		SetupBaseTest(test.cache, test.writable)
+		WriteBaseTest(1000)
 
 		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
 			var wg sync.WaitGroup

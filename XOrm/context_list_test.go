@@ -14,12 +14,12 @@ import (
 
 // TestContextList 测试列举操作。
 func TestContextList(t *testing.T) {
-	defer ResetContext(t)
-	defer ResetBaseTest(t)
+	defer ResetContext()
+	defer ResetBaseTest()
 
 	model := NewTestBaseModel()
-	ResetBaseTest(t)
-	SetupBaseTest(t)
+	ResetBaseTest()
+	SetupBaseTest()
 
 	tests := []struct {
 		name       string
@@ -76,7 +76,7 @@ func TestContextList(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ResetContext(t)
+			ResetContext()
 
 			var wg sync.WaitGroup
 			for i := range test.concurrent {
