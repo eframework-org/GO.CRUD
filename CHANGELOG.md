@@ -1,5 +1,12 @@
 # 更新记录
 
+## [0.0.6] - 2025-06-16
+### 变更
+- 优化 XOrm 模块 context_commit.go 的首选项配置，支持禁用提交队列及配置项的校验
+
+### 修复
+- 修复 XOrm 模块 context.go -> Defer 调用时 XCollect.Map 的并发读写问题
+
 ## [0.0.5] - 2025-05-24
 ### 变更
 - 移除 XOrm 模块 context_cache.go 的缓存实现，使用 XCollect.Map 替代之，提高大数据的遍历效率
