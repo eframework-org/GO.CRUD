@@ -24,11 +24,11 @@ func TestContextCommit(t *testing.T) {
 
 		setupCommit(XPrefs.New())
 		assert.Equal(t, runtime.NumCPU(), commitQueueCount, fmt.Sprintf("默认的提交队列数量应当为 %v", runtime.NumCPU()))
-		assert.Equal(t, 100000, commitBatchCount, "默认的提交批次数量应当为 100000")
+		assert.Equal(t, 100000, commitQueueCapacity, "默认的提交批次数量应当为 100000")
 
 		setupCommit(XPrefs.New().Set(commitQueueCountPrefs, 20).Set(commitQueueCapacityPrefs, 1000))
 		assert.Equal(t, 20, commitQueueCount, "设置的提交队列数量应当为 20")
-		assert.Equal(t, 1000, commitBatchCount, "设置的提交批次数量应当为 1000")
+		assert.Equal(t, 1000, commitQueueCapacity, "设置的提交批次数量应当为 1000")
 
 		assert.Equal(t, 20, len(commitQueues), "提交队列数量应当为 20")
 		assert.Equal(t, 1000, cap(commitQueues[0]), "提交队列容量应当为 1000")

@@ -34,8 +34,8 @@ var (
 	// commitQueueCount 定义了提交队列的数量，默认为 CPU 核心数。
 	commitQueueCount int = runtime.NumCPU()
 
-	// commitBatchCount 定义了单个队列的容量，当超过此容量时，新的批次将被丢弃。
-	commitBatchCount int = 100000
+	// commitQueueCapacity 定义了单个队列的容量，当超过此容量时，新的批次将被丢弃。
+	commitQueueCapacity int = 100000
 
 	// commitQueues 定义了提交队列的切片，用于缓冲待处理的批次数据。
 	commitQueues []chan *commitBatch
@@ -84,15 +84,16 @@ func init() { setupCommit(XPrefs.Asset()) }
 func setupCommit(prefs XPrefs.IBase) {
 	Close()
 
-	commitQueueCount = prefs.GetInt(commitQueueCountPrefs, commitQueueCount)
-	commitBatchCount = prefs.GetInt(commitQueueCapacityPrefs, commitBatchCount)
-
-	if commitQueueCount <= 0 {
-		commitQueueCount = runtime.NumCPU()
+	commitQueueCount = prefs.GetInt(commitQueueCountPrefs, runtime.NumCPU())
+	if commitQueueCount < 0 {
+		XLog.Notice("XOrm.Commit.Setup: ignore to setup commit queue.")
+		return
 	}
 
-	if commitBatchCount <= 0 {
-		commitBatchCount = 100000
+	commitQueueCapacity = prefs.GetInt(commitQueueCapacityPrefs, 100000)
+	if commitQueueCapacity <= 0 {
+		XLog.Panic("XOrm.Commit.Setup: capacity of queue is negative or zero: %v.", commitQueueCapacity)
+		return
 	}
 
 	commitQueues = make([]chan *commitBatch, commitQueueCount)
@@ -111,7 +112,7 @@ func setupCommit(prefs XPrefs.IBase) {
 	commitSetupSig = make([]chan os.Signal, commitQueueCount)
 	commitFlushWait = make([]chan *sync.WaitGroup, commitQueueCount)
 	for i := range commitQueueCount {
-		commitQueues[i] = make(chan *commitBatch, commitBatchCount)
+		commitQueues[i] = make(chan *commitBatch, commitQueueCapacity)
 		commitSetupSig[i] = make(chan os.Signal, 1)
 		commitFlushWait[i] = make(chan *sync.WaitGroup, 1)
 	}
@@ -199,7 +200,7 @@ func setupCommit(prefs XPrefs.IBase) {
 	}
 	wg.Wait()
 
-	XLog.Notice("XOrm.Commit.Setup: queue of commit count is %v, batch of queue count is %v.", commitQueueCount, commitBatchCount)
+	XLog.Notice("XOrm.Commit.Setup: queue of commit count is %v, capacity of queue is %v.", commitQueueCount, commitQueueCapacity)
 }
 
 // commitBatch 定义了一批需要处理的数据对象，用于批量异步处理数据变更。

@@ -295,6 +295,35 @@ XOrm 拓展了 Beego 的 ORM 功能，同时实现了基于上下文的事务机
 4. 删除和清除操作仅做标记，实际删除在会话提交时执行
 5. 列举操作可能会同时访问缓存和远端数据
 
+3.2 指标监控
+
+支持 Prometheus 指标监控，可以实时监控 CRUD 提交的性能和资源使用情况：
+
+指标说明：
+
+	| 指标 | 类型 | 描述 |
+	|------|------|------|
+	| xorm_commit_queue | Gauge | 所有队列中等待提交的对象总数 |
+	| xorm_commit_total | Counter | 所有队列已经提交的对象总数 |
+	| xorm_commit_queue_{n} | Gauge | 第 n 个队列中等待提交的对象数量 |
+	| xorm_commit_total_{n} | Counter | 第 n 个队列已经提交的对象总数 |
+
+3.3 可选配置
+
+支持通过首选项配置对提交队列进行调整：
+
+配置参数：
+
+  - Orm/Commit/Queue：提交队列的数量，默认为 CPU 核心数，-1 表示禁用提交队列
+  - Orm/Commit/Queue/Capacity：单个队列的容量，默认为 100000
+
+配置示例：
+
+	{
+	    "Orm/Commit/Queue": 8,
+	    "Orm/Commit/Queue/Capacity": 100000
+	}
+
 更多信息请参考模块文档。
 */
 package XOrm

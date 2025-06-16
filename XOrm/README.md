@@ -335,7 +335,7 @@ XOrm.List(&users, cond) // 依次检查会话缓存、全局缓存、远端数�
 
 配置参数：
 
-- `Orm/Commit/Queue`：提交队列的数量，默认为 CPU 核心数
+- `Orm/Commit/Queue`：提交队列的数量，默认为 CPU 核心数，-1 表示禁用提交队列
 - `Orm/Commit/Queue/Capacity`：单个队列的容量，默认为 100000
 
 配置示例：
