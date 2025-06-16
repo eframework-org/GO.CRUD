@@ -223,11 +223,12 @@ func Defer() {
 					sessionObjectPool.Put(sobj) // 回收会话内存
 				}
 
-				var batchChunks [][]*sessionObject
 				scache.Range(func(key1, value1 any) bool {
 					watch := value1.(*XCollect.Map)
 					if watch != nil {
-						watch.RangeConcurrent(func(chunk int, key2, value2 any) bool {
+						var chunks [][]*sessionObject
+
+						watch.RangeConcurrent(func(index int, key2, value2 any) bool {
 							sobj := value2.(*sessionObject)
 							if sobj == nil {
 								return true
@@ -260,20 +261,20 @@ func Defer() {
 										globalLock(sobj.ptr)
 									}
 
-									batchChunks[chunk] = append(batchChunks[chunk], sobj)
+									chunks[index] = append(chunks[index], sobj)
 								}
 							}
 							return true
-						}, func(chunk int) { batchChunks = make([][]*sessionObject, chunk) })
+						}, func(worker int) { chunks = make([][]*sessionObject, worker) })
+
+						for _, chunk := range chunks {
+							if len(chunk) > 0 {
+								batch.objects = append(batch.objects, chunk...)
+							}
+						}
 					}
 					return true
 				})
-
-				for _, chunk := range batchChunks {
-					if len(chunk) > 0 {
-						batch.objects = append(batch.objects, chunk...)
-					}
-				}
 			} else {
 				scache.Range(func(key, value any) bool {
 					watch := value.(*XCollect.Map)
