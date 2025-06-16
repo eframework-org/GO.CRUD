@@ -109,7 +109,7 @@ func getGlobalCache(model IModel) *XCollect.Map {
 func getSessionCache(gid int64, model IModel) *XCollect.Map {
 	value, _ := sessionCacheMap.Load(gid)
 	if value != nil {
-		value2, _ := value.(*XCollect.Map).Load(model.ModelUnique())
+		value2, _ := value.(*sync.Map).Load(model.ModelUnique())
 		if value2 != nil {
 			return value2.(*XCollect.Map)
 		}
@@ -145,8 +145,8 @@ func setGlobalCache(model IModel) {
 // 会保存原始模型的克隆副本用于比较。
 func setSessionCache(gid int64, model IModel) *sessionObject {
 	name := model.DataUnique()
-	tmap, _ := sessionCacheMap.LoadOrStore(gid, XCollect.NewMap()) // 对应线程
-	omap, _ := tmap.(*XCollect.Map).LoadOrStore(model.ModelUnique(), XCollect.NewMap())
+	tmap, _ := sessionCacheMap.LoadOrStore(gid, &sync.Map{}) // 对应线程
+	omap, _ := tmap.(*sync.Map).LoadOrStore(model.ModelUnique(), XCollect.NewMap())
 	value, loaded := omap.(*XCollect.Map).LoadOrStore(name, sessionObjectPool.Get())
 	sobj := value.(*sessionObject)
 	if !loaded {

@@ -169,9 +169,9 @@ func Defer() {
 		}()
 
 		var batch *commitBatch
-		var scache *XCollect.Map
+		var scache *sync.Map
 		if tmp, _ := sessionCacheMap.LoadAndDelete(gid); tmp != nil {
-			scache = tmp.(*XCollect.Map)
+			scache = tmp.(*sync.Map)
 		}
 		if scache != nil {
 			if ctx.writable {
@@ -223,11 +223,11 @@ func Defer() {
 					sessionObjectPool.Put(sobj) // 回收会话内存
 				}
 
-				var batchChunks [][][]*sessionObject
-				scache.RangeConcurrent(func(chunk1 int, key1, value1 any) bool {
+				var batchChunks [][]*sessionObject
+				scache.Range(func(key1, value1 any) bool {
 					watch := value1.(*XCollect.Map)
 					if watch != nil {
-						watch.RangeConcurrent(func(chunk2 int, key2, value2 any) bool {
+						watch.RangeConcurrent(func(chunk int, key2, value2 any) bool {
 							sobj := value2.(*sessionObject)
 							if sobj == nil {
 								return true
@@ -260,24 +260,22 @@ func Defer() {
 										globalLock(sobj.ptr)
 									}
 
-									batchChunks[chunk1][chunk2] = append(batchChunks[chunk1][chunk2], sobj)
+									batchChunks[chunk] = append(batchChunks[chunk], sobj)
 								}
 							}
 							return true
-						}, func(chunk2 int) { batchChunks[chunk1] = make([][]*sessionObject, chunk2) })
+						}, func(chunk int) { batchChunks = make([][]*sessionObject, chunk) })
 					}
 					return true
-				}, func(chunk1 int) { batchChunks = make([][][]*sessionObject, chunk1) })
+				})
 
 				for _, chunk := range batchChunks {
-					for _, objs := range chunk {
-						if len(objs) > 0 {
-							batch.objects = append(batch.objects, objs...)
-						}
+					if len(chunk) > 0 {
+						batch.objects = append(batch.objects, chunk...)
 					}
 				}
 			} else {
-				scache.RangeConcurrent(func(_ int, key, value any) bool {
+				scache.Range(func(key, value any) bool {
 					watch := value.(*XCollect.Map)
 					if watch != nil {
 						watch.RangeConcurrent(func(_ int, key, value any) bool {
