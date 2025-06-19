@@ -633,7 +633,7 @@ func doComp(model IModel, meta *modelMeta, cond beegoCondValue, ctx *matchContex
 	case "isnull":
 		return isNullValue(cvalue, ctype)
 	case "in":
-		return handleInOperator(cvalue, cond.sql, cond.args, ctx, depth)
+		return handleInOperator(cvalue, field, cond.args, ctx, depth)
 	case "exact", "ne":
 		return handleExactOperator(cvalue, ctype, operator, cond.args[0])
 	case "gt", "gte", "lt", "lte":
