@@ -758,7 +758,7 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 			cargs[val] = struct{}{}
 		}
 		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, firstArgs)
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
 			return handleFloatInOperator(cvalue, actual.(map[float64]struct{}))
@@ -774,7 +774,7 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 			cargs[val] = struct{}{}
 		}
 		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, firstArgs)
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
 			return handleStringInOperator(cvalue, actual.(map[string]struct{}))
