@@ -571,14 +571,11 @@ func (md *Model[T]) Matchs(cond ...*Condition) bool {
 		return false
 	}
 
-	cond[0].matchOnce.Do(func() {
-		cond[0].matchCtx = &matchContext{}
-	})
-	return doMatch(md.this, meta, getCondParams(cond[0].Base), cond[0].matchCtx, 0)
+	return doMatch(md.this, meta, cond[0], getCondParams(cond[0].Base), 0)
 }
 
-// doMatch 内部匹配方法
-func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue, ctx *matchContext, depth int) bool {
+// doMatch 内部匹配方法。
+func doMatch(model IModel, meta *modelMeta, ctx *Condition, conds []beegoCondValue, depth int) bool {
 	if conds == nil {
 		return false
 	}
@@ -593,7 +590,7 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue, ctx *matchCo
 		}
 
 		if cond.isCond {
-			if doMatch(model, meta, getCondParams(cond.cond), ctx, depth+1) == !cond.isNot {
+			if doMatch(model, meta, ctx, getCondParams(cond.cond), depth+1) == !cond.isNot {
 				if !hasNext || nextCond.isOr {
 					return true
 				}
@@ -601,7 +598,7 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue, ctx *matchCo
 				return false
 			}
 		} else {
-			if doComp(model, meta, cond, ctx, depth) == !cond.isNot {
+			if doComp(model, meta, ctx, cond, depth) == !cond.isNot {
 				if !hasNext || nextCond.isOr {
 					return true
 				}
@@ -613,12 +610,12 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue, ctx *matchCo
 	return true
 }
 
-// 根据指定操作符对字段进行比较
+// 根据指定操作符对字段进行比较。
 //
-//	整型支持: Int,Int32,Int64
-//	浮点支持: Float32,Float64
-func doComp(model IModel, meta *modelMeta, cond beegoCondValue, ctx *matchContext, depth int) bool {
-	if !isValidCondition(cond) {
+//	整型支持: Int, Int32, Int64
+//	浮点支持: Float32, Float64
+func doComp(model IModel, meta *modelMeta, ctx *Condition, cond beegoCondValue, depth int) bool {
+	if !(len(cond.exprs) > 0 && len(cond.args) > 0) {
 		return false
 	}
 
@@ -633,7 +630,7 @@ func doComp(model IModel, meta *modelMeta, cond beegoCondValue, ctx *matchContex
 	case "isnull":
 		return isNullValue(cvalue, ctype)
 	case "in":
-		return handleInOperator(cvalue, field, cond.args, ctx, depth)
+		return handleInOperator(ctx, cvalue, cond.args, field, depth)
 	case "exact", "ne":
 		return handleExactOperator(cvalue, ctype, operator, cond.args[0])
 	case "gt", "gte", "lt", "lte":
@@ -646,12 +643,7 @@ func doComp(model IModel, meta *modelMeta, cond beegoCondValue, ctx *matchContex
 	}
 }
 
-// 检查条件是否有效
-func isValidCondition(cond beegoCondValue) bool {
-	return len(cond.exprs) > 0 && len(cond.args) > 0
-}
-
-// 解析条件表达式
+// 解析条件表达式。
 func parseCondition(cond beegoCondValue) (field, operator string) {
 	field = cond.exprs[0]
 	operator = "exact"
@@ -661,7 +653,7 @@ func parseCondition(cond beegoCondValue) (field, operator string) {
 	return
 }
 
-// 获取字段值
+// 获取字段值。
 func getFieldValue(model IModel, meta *modelMeta, field string) any {
 	if fmeta := meta.fields.columns[field]; fmeta != nil {
 		return model.DataValue(fmeta.name)
@@ -669,7 +661,7 @@ func getFieldValue(model IModel, meta *modelMeta, field string) any {
 	return nil
 }
 
-// 判断是否为空值
+// 判断是否为空值。
 func isNullValue(value any, typ reflect.Type) bool {
 	if typ.Kind() == reflect.String {
 		return value == ""
@@ -677,147 +669,163 @@ func isNullValue(value any, typ reflect.Type) bool {
 	return value == nil
 }
 
-// 处理 IN 操作符
-func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, depth int) bool {
+// operatorKey 是用于缓存操作上下文的键。
+type operatorKey struct {
+	operator string // 操作类型
+	field    string // 字段名称
+	depth    int    // 遍历深度
+}
+
+// 处理 IN 操作符。
+func handleInOperator(ctx *Condition, cvalue any, args []any, field string, depth int) bool {
 	if len(args) == 0 {
 		return false
 	}
 
-	switch firstArgs := args[0].(type) {
+	switch arg0 := args[0].(type) {
 	case []int32:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[int64]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[int64(val)] = struct{}{}
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
+
+		var nargs map[int64]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[int64]struct{})
+		} else {
+			nargs = make(map[int64]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[int64(val)] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleIntegerInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	case []int:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[int64]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[int64(val)] = struct{}{}
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
+
+		var nargs map[int64]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[int64]struct{})
+		} else {
+			nargs = make(map[int64]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[int64(val)] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleIntegerInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	case []int64:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[int64]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[val] = struct{}{}
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
+
+		var nargs map[int64]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[int64]struct{})
+		} else {
+			nargs = make(map[int64]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[val] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleIntegerInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	case []float32:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleFloatInOperator(cvalue, val.(map[float64]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[float64]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[float64(val)] = struct{}{}
+		nvalue, ok := toFloat64(cvalue)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleFloatInOperator(cvalue, actual.(map[float64]struct{}))
+
+		var nargs map[float64]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[float64]struct{})
+		} else {
+			nargs = make(map[float64]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[float64(val)] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleFloatInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	case []float64:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleFloatInOperator(cvalue, val.(map[float64]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[float64]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[val] = struct{}{}
+		nvalue, ok := toFloat64(cvalue)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleFloatInOperator(cvalue, actual.(map[float64]struct{}))
+
+		var nargs map[float64]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[float64]struct{})
+		} else {
+			nargs = make(map[float64]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[val] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleFloatInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	case []string:
-		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
-		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleStringInOperator(cvalue, val.(map[string]struct{}))
+		if len(arg0) == 0 {
+			return false
 		}
-		cargs := make(map[string]struct{}, len(firstArgs))
-		for _, val := range firstArgs {
-			cargs[val] = struct{}{}
+		nvalue, ok := cvalue.(string)
+		if !ok {
+			return false
 		}
-		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
-		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
-		if loaded {
-			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleStringInOperator(cvalue, actual.(map[string]struct{}))
+
+		var nargs map[string]struct{}
+		okey := operatorKey{"in", field, depth}
+		if val, ok := ctx.context.Load(okey); ok {
+			nargs = val.(map[string]struct{})
+		} else {
+			nargs = make(map[string]struct{}, len(arg0))
+			for _, val := range arg0 {
+				nargs[val] = struct{}{}
+			}
+			ctx.context.LoadOrStore(okey, nargs)
 		}
-		return handleStringInOperator(cvalue, cargs)
+
+		_, exists := nargs[nvalue]
+		return exists
 	}
 	return false
 }
 
-// 处理整数类型的 IN 操作
-func handleIntegerInOperator(cvalue any, args map[int64]struct{}) bool {
-	cval, ok := toInt64(cvalue)
-	if !ok {
-		return false
-	}
-
-	_, exists := args[cval]
-	return exists
-}
-
-// 处理浮点类型的 IN 操作
-func handleFloatInOperator(cvalue any, args map[float64]struct{}) bool {
-	cval, ok := toFloat64(cvalue)
-	if !ok {
-		return false
-	}
-
-	_, exists := args[cval]
-	return exists
-}
-
-// 处理字符串类型的 IN 操作
-func handleStringInOperator(cvalue any, args map[string]struct{}) bool {
-	cval, ok := cvalue.(string)
-	if !ok {
-		return false
-	}
-
-	_, exists := args[cval]
-	return exists
-}
-
-// 处理精确匹配操作符
+// 处理精确匹配操作符。
 func handleExactOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	switch {
 	case isNumericType(ctype):
@@ -829,7 +837,7 @@ func handleExactOperator(cvalue any, ctype reflect.Type, operator string, arg an
 	}
 }
 
-// 处理数值类型的精确匹配
+// 处理数值类型的精确匹配。
 func handleNumericExactOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if isIntegerType(ctype) {
 		return handleIntegerExactOperator(cvalue, operator, arg)
@@ -837,7 +845,7 @@ func handleNumericExactOperator(cvalue any, ctype reflect.Type, operator string,
 	return handleFloatExactOperator(cvalue, operator, arg)
 }
 
-// 处理整数类型的精确匹配
+// 处理整数类型的精确匹配。
 func handleIntegerExactOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -851,7 +859,7 @@ func handleIntegerExactOperator(cvalue any, operator string, arg any) bool {
 	return cval != val
 }
 
-// 处理浮点类型的精确匹配
+// 处理浮点类型的精确匹配。
 func handleFloatExactOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toFloat64(cvalue)
 	val, ok2 := toFloat64(arg)
@@ -865,7 +873,7 @@ func handleFloatExactOperator(cvalue any, operator string, arg any) bool {
 	return cval != val
 }
 
-// 处理比较操作符
+// 处理比较操作符。
 func handleComparisonOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if !isNumericType(ctype) {
 		return false
@@ -877,7 +885,7 @@ func handleComparisonOperator(cvalue any, ctype reflect.Type, operator string, a
 	return handleFloatComparisonOperator(cvalue, operator, arg)
 }
 
-// 处理整数类型的比较操作
+// 处理整数类型的比较操作。
 func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -899,7 +907,7 @@ func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool 
 	}
 }
 
-// 处理浮点类型的比较操作
+// 处理浮点类型的比较操作。
 func handleFloatComparisonOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -921,7 +929,7 @@ func handleFloatComparisonOperator(cvalue any, operator string, arg any) bool {
 	}
 }
 
-// 处理字符串操作符
+// 处理字符串操作符。
 func handleStringOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if ctype.Kind() != reflect.String {
 		return false
@@ -942,7 +950,7 @@ func handleStringOperator(cvalue any, ctype reflect.Type, operator string, arg a
 	}
 }
 
-// 类型判断辅助函数
+// 类型判断辅助函数。
 func isNumericType(t reflect.Type) bool {
 	return isIntegerType(t) || isFloatType(t)
 }
@@ -965,7 +973,7 @@ func isFloatType(t reflect.Type) bool {
 	}
 }
 
-// 类型转换辅助函数
+// Int64 类型转换辅助函数。
 func toInt64(v any) (int64, bool) {
 	switch val := v.(type) {
 	case int:
@@ -979,6 +987,7 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
+// Float64 类型转换辅助函数。
 func toFloat64(v any) (float64, bool) {
 	if v == nil {
 		return 0, false
