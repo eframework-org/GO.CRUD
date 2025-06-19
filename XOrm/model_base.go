@@ -735,23 +735,51 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 	case []float32:
 		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
 		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleFloatInOperator(cvalue, val.([]float64))
+			return handleFloatInOperator(cvalue, val.(map[float64]struct{}))
 		}
-		cargs := make([]float64, len(firstArgs))
-		for ind, val := range firstArgs {
-			cargs[ind] = float64(val)
+		cargs := make(map[float64]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[float64(val)] = struct{}{}
 		}
 		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
 		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleFloatInOperator(cvalue, actual.([]float64))
+			return handleFloatInOperator(cvalue, actual.(map[float64]struct{}))
 		}
 		return handleFloatInOperator(cvalue, cargs)
 	case []float64:
-		return handleFloatInOperator(cvalue, firstArgs)
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleFloatInOperator(cvalue, val.(map[float64]struct{}))
+		}
+		cargs := make(map[float64]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[val] = struct{}{}
+		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, firstArgs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleFloatInOperator(cvalue, actual.(map[float64]struct{}))
+		}
+		return handleFloatInOperator(cvalue, cargs)
 	case []string:
-		return handleStringInOperator(cvalue, firstArgs)
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleStringInOperator(cvalue, val.(map[string]struct{}))
+		}
+		cargs := make(map[string]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[val] = struct{}{}
+		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, firstArgs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleStringInOperator(cvalue, actual.(map[string]struct{}))
+		}
+		return handleStringInOperator(cvalue, cargs)
 	}
 	return false
 }
@@ -768,33 +796,25 @@ func handleIntegerInOperator(cvalue any, args map[int64]struct{}) bool {
 }
 
 // 处理浮点类型的 IN 操作
-func handleFloatInOperator(cvalue any, args []float64) bool {
+func handleFloatInOperator(cvalue any, args map[float64]struct{}) bool {
 	cval, ok := toFloat64(cvalue)
 	if !ok {
 		return false
 	}
 
-	for _, arg := range args {
-		if arg == cval {
-			return true
-		}
-	}
-	return false
+	_, exists := args[cval]
+	return exists
 }
 
 // 处理字符串类型的 IN 操作
-func handleStringInOperator(cvalue any, args []string) bool {
+func handleStringInOperator(cvalue any, args map[string]struct{}) bool {
 	cval, ok := cvalue.(string)
 	if !ok {
 		return false
 	}
 
-	for _, arg := range args {
-		if arg == cval {
-			return true
-		}
-	}
-	return false
+	_, exists := args[cval]
+	return exists
 }
 
 // 处理精确匹配操作符
