@@ -687,41 +687,55 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 	case []int32:
 		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
 		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.([]int64))
+			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
 		}
-		cargs := make([]int64, len(firstArgs))
-		for ind, val := range firstArgs {
-			cargs[ind] = int64(val)
+		cargs := make(map[int64]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[int64(val)] = struct{}{}
 		}
 		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
 		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.([]int64))
+			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
 		}
 		return handleIntegerInOperator(cvalue, cargs)
 	case []int:
 		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
 		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.([]int64))
+			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
 		}
-		cargs := make([]int64, len(firstArgs))
-		for ind, val := range firstArgs {
-			cargs[ind] = int64(val)
+		cargs := make(map[int64]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[int64(val)] = struct{}{}
 		}
 		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
 		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.([]int64))
+			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
 		}
 		return handleIntegerInOperator(cvalue, cargs)
 	case []int64:
-		return handleIntegerInOperator(cvalue, firstArgs)
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleIntegerInOperator(cvalue, val.(map[int64]struct{}))
+		}
+		cargs := make(map[int64]struct{}, len(firstArgs))
+		for _, val := range firstArgs {
+			cargs[val] = struct{}{}
+		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleIntegerInOperator(cvalue, actual.(map[int64]struct{}))
+		}
+		return handleIntegerInOperator(cvalue, cargs)
 	case []float32:
 		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
 		if val, ok := ctx.inCache.Load(inCacheKey); ok {
-			return handleIntegerInOperator(cvalue, val.([]int64))
+			return handleFloatInOperator(cvalue, val.([]float64))
 		}
 		cargs := make([]float64, len(firstArgs))
 		for ind, val := range firstArgs {
@@ -731,7 +745,7 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
 		if loaded {
 			// 已有缓存，丢弃刚创建的 cargs，使用已有的
-			return handleIntegerInOperator(cvalue, actual.([]int64))
+			return handleFloatInOperator(cvalue, actual.([]float64))
 		}
 		return handleFloatInOperator(cvalue, cargs)
 	case []float64:
@@ -743,18 +757,14 @@ func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, 
 }
 
 // 处理整数类型的 IN 操作
-func handleIntegerInOperator(cvalue any, args []int64) bool {
+func handleIntegerInOperator(cvalue any, args map[int64]struct{}) bool {
 	cval, ok := toInt64(cvalue)
 	if !ok {
 		return false
 	}
 
-	for _, arg := range args {
-		if arg == cval {
-			return true
-		}
-	}
-	return false
+	_, exists := args[cval]
+	return exists
 }
 
 // 处理浮点类型的 IN 操作

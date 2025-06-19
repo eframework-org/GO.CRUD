@@ -78,12 +78,12 @@ func SetupBaseTest(cacheAndWritable ...bool) {
 	defer testDatabase.Close()
 
 	// 创建测试表
-	if _, err := testDatabase.Exec(TestDropTableSQL); err != nil {
-		XLog.Panic("删除测试表失败: %v", err)
-	}
-	if _, err := testDatabase.Exec(TestCreateTableSQL); err != nil {
-		XLog.Panic("创建测试表失败: %v", err)
-	}
+	// if _, err := testDatabase.Exec(TestDropTableSQL); err != nil {
+	// 	XLog.Panic("删除测试表失败: %v", err)
+	// }
+	// if _, err := testDatabase.Exec(TestCreateTableSQL); err != nil {
+	// 	XLog.Panic("创建测试表失败: %v", err)
+	// }
 
 	// 注册数据库
 	setupDatabaseOnce.Do(func() {

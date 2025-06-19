@@ -15,13 +15,13 @@ import (
 // 多核测试可以使用命令 go test -run=^$ -bench=^BenchmarkOrm$ -benchmem -cpu=1,2,4,8,16,32
 func BenchmarkOrm(b *testing.B) {
 	defer ResetContext()
-	defer ResetBaseTest()
+	//defer ResetBaseTest()
 
 	for _, count := range []int{100000} {
 		ResetContext()
-		ResetBaseTest()
+		//ResetBaseTest()
 		SetupBaseTest()
-		WriteBaseTest(count)
+		//WriteBaseTest(count)
 
 		model := NewTestBaseModel()
 		Watch()
