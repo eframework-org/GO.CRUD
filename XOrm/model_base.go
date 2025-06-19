@@ -10,8 +10,6 @@ import (
 	"strings"
 	"unsafe"
 
-	"slices"
-
 	"github.com/beego/beego/v2/client/orm"
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XObject"
@@ -632,7 +630,7 @@ func doComp(model IModel, meta *modelMeta, cond beegoCondValue) bool {
 	case "isnull":
 		return isNullValue(cvalue, ctype)
 	case "in":
-		return handleInOperator(cvalue, ctype, cond.args)
+		return handleInOperator(cvalue, cond.args)
 	case "exact", "ne":
 		return handleExactOperator(cvalue, ctype, operator, cond.args[0])
 	case "gt", "gte", "lt", "lte":
@@ -677,64 +675,49 @@ func isNullValue(value any, typ reflect.Type) bool {
 }
 
 // 处理 IN 操作符
-func handleInOperator(cvalue any, ctype reflect.Type, args []any) bool {
+func handleInOperator(cvalue any, args []any) bool {
 	if len(args) == 0 {
 		return false
 	}
 
-	// 处理切片参数
-	inArgs := normalizeInArgs(args)
-
-	switch {
-	case isNumericType(ctype):
-		return handleNumericInOperator(cvalue, ctype, inArgs)
-	case ctype.Kind() == reflect.String:
-		return slices.Contains(inArgs, cvalue)
-	default:
-		return false
-	}
-}
-
-// 标准化 IN 操作符的参数
-func normalizeInArgs(args []any) []any {
-	if len(args) == 0 {
-		return args
-	}
-
-	firstArg := args[0]
-	argType := reflect.TypeOf(firstArg)
-	if argType.Kind() != reflect.Slice && argType.Kind() != reflect.Array {
-		return args
-	}
-
-	val := reflect.ValueOf(firstArg)
-	result := make([]any, 0, val.Len())
-	for i := range val.Len() {
-		v := val.Index(i)
-		if v.CanInterface() {
-			result = append(result, v.Interface())
+	switch firstArgs := args[0].(type) {
+	case []int32:
+		cargs := make([]int64, len(firstArgs))
+		for ind, val := range firstArgs {
+			cargs[ind] = int64(val)
 		}
+		return handleIntegerInOperator(cvalue, cargs)
+	case []int:
+		cargs := make([]int64, len(firstArgs))
+		for ind, val := range firstArgs {
+			cargs[ind] = int64(val)
+		}
+		return handleIntegerInOperator(cvalue, cargs)
+	case []int64:
+		return handleIntegerInOperator(cvalue, firstArgs)
+	case []float32:
+		cargs := make([]float64, len(firstArgs))
+		for ind, val := range firstArgs {
+			cargs[ind] = float64(val)
+		}
+		return handleFloatInOperator(cvalue, cargs)
+	case []float64:
+		return handleFloatInOperator(cvalue, firstArgs)
+	case []string:
+		return handleStringInOperator(cvalue, firstArgs)
 	}
-	return result
-}
-
-// 处理数值类型的 IN 操作
-func handleNumericInOperator(cvalue any, ctype reflect.Type, args []any) bool {
-	if isIntegerType(ctype) {
-		return handleIntegerInOperator(cvalue, args)
-	}
-	return handleFloatInOperator(cvalue, args)
+	return false
 }
 
 // 处理整数类型的 IN 操作
-func handleIntegerInOperator(cvalue any, args []any) bool {
-	cval := toInt64(cvalue)
-	if cval == nil {
+func handleIntegerInOperator(cvalue any, args []int64) bool {
+	cval, ok := toInt64(cvalue)
+	if !ok {
 		return false
 	}
 
 	for _, arg := range args {
-		if val := toInt64(arg); val != nil && *val == *cval {
+		if arg == cval {
 			return true
 		}
 	}
@@ -742,14 +725,29 @@ func handleIntegerInOperator(cvalue any, args []any) bool {
 }
 
 // 处理浮点类型的 IN 操作
-func handleFloatInOperator(cvalue any, args []any) bool {
-	cval := toFloat64(cvalue)
-	if cval == nil {
+func handleFloatInOperator(cvalue any, args []float64) bool {
+	cval, ok := toFloat64(cvalue)
+	if !ok {
 		return false
 	}
 
 	for _, arg := range args {
-		if val := toFloat64(arg); val != nil && *val == *cval {
+		if arg == cval {
+			return true
+		}
+	}
+	return false
+}
+
+// 处理字符串类型的 IN 操作
+func handleStringInOperator(cvalue any, args []string) bool {
+	cval, ok := cvalue.(string)
+	if !ok {
+		return false
+	}
+
+	for _, arg := range args {
+		if arg == cval {
 			return true
 		}
 	}
@@ -778,30 +776,30 @@ func handleNumericExactOperator(cvalue any, ctype reflect.Type, operator string,
 
 // 处理整数类型的精确匹配
 func handleIntegerExactOperator(cvalue any, operator string, arg any) bool {
-	cval := toInt64(cvalue)
-	val := toInt64(arg)
-	if cval == nil || val == nil {
+	cval, ok1 := toInt64(cvalue)
+	val, ok2 := toInt64(arg)
+	if !ok1 || !ok2 {
 		return false
 	}
 
 	if operator == "exact" {
-		return *cval == *val
+		return cval == val
 	}
-	return *cval != *val
+	return cval != val
 }
 
 // 处理浮点类型的精确匹配
 func handleFloatExactOperator(cvalue any, operator string, arg any) bool {
-	cval := toFloat64(cvalue)
-	val := toFloat64(arg)
-	if cval == nil || val == nil {
+	cval, ok1 := toFloat64(cvalue)
+	val, ok2 := toFloat64(arg)
+	if !ok1 || !ok2 {
 		return false
 	}
 
 	if operator == "exact" {
-		return *cval == *val
+		return cval == val
 	}
-	return *cval != *val
+	return cval != val
 }
 
 // 处理比较操作符
@@ -818,21 +816,21 @@ func handleComparisonOperator(cvalue any, ctype reflect.Type, operator string, a
 
 // 处理整数类型的比较操作
 func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool {
-	cval := toInt64(cvalue)
-	val := toInt64(arg)
-	if cval == nil || val == nil {
+	cval, ok1 := toInt64(cvalue)
+	val, ok2 := toInt64(arg)
+	if !ok1 || !ok2 {
 		return false
 	}
 
 	switch operator {
 	case "gt":
-		return *cval > *val
+		return cval > val
 	case "gte":
-		return *cval >= *val
+		return cval >= val
 	case "lt":
-		return *cval < *val
+		return cval < val
 	case "lte":
-		return *cval <= *val
+		return cval <= val
 	default:
 		return false
 	}
@@ -840,21 +838,21 @@ func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool 
 
 // 处理浮点类型的比较操作
 func handleFloatComparisonOperator(cvalue any, operator string, arg any) bool {
-	cval := toFloat64(cvalue)
-	val := toFloat64(arg)
-	if cval == nil || val == nil {
+	cval, ok1 := toInt64(cvalue)
+	val, ok2 := toInt64(arg)
+	if !ok1 || !ok2 {
 		return false
 	}
 
 	switch operator {
 	case "gt":
-		return *cval > *val
+		return cval > val
 	case "gte":
-		return *cval >= *val
+		return cval >= val
 	case "lt":
-		return *cval < *val
+		return cval < val
 	case "lte":
-		return *cval <= *val
+		return cval <= val
 	default:
 		return false
 	}
@@ -905,48 +903,34 @@ func isFloatType(t reflect.Type) bool {
 }
 
 // 类型转换辅助函数
-func toInt64(v any) *int64 {
-	if v == nil {
-		return nil
-	}
-
-	var result int64
+func toInt64(v any) (int64, bool) {
 	switch val := v.(type) {
 	case int:
-		result = int64(val)
+		return int64(val), true
 	case int32:
-		result = int64(val)
+		return int64(val), true
 	case int64:
-		result = val
+		return val, true
 	default:
-		rv := reflect.ValueOf(v)
-		if isIntegerType(rv.Type()) {
-			result = rv.Int()
-		} else {
-			return nil
-		}
+		return 0, false
 	}
-	return &result
 }
 
-func toFloat64(v any) *float64 {
+func toFloat64(v any) (float64, bool) {
 	if v == nil {
-		return nil
+		return 0, false
 	}
 
-	var result float64
 	switch val := v.(type) {
 	case float32:
-		result = float64(val)
+		return float64(val), true
 	case float64:
-		result = val
+		return val, true
 	default:
 		rv := reflect.ValueOf(v)
 		if isFloatType(rv.Type()) {
-			result = rv.Float()
-		} else {
-			return nil
+			return rv.Float(), true
 		}
+		return 0, false
 	}
-	return &result
 }

@@ -7,6 +7,8 @@ package XOrm
 import (
 	"fmt"
 	"testing"
+
+	"github.com/beego/beego/v2/client/orm"
 )
 
 // BenchmarkOrm 比较 XOrm 缓存查询和回源查询的性能。
@@ -22,20 +24,31 @@ func BenchmarkOrm(b *testing.B) {
 		WriteBaseTest(count)
 
 		model := NewTestBaseModel()
-		cond := Cond("int_val > {0} && string_val == {1}", 0, "hello world")
-		Watch()
-		List(model) // 读取至缓存
-		Defer()
+		conds := []struct {
+			Name string
+			Cond *Condition
+		}{
+			{"int_val > 0 && string_val == 'hello world'", Cond("int_val > {0} && string_val == {1}", 0, "hello world")},
+			{"int_val__in int32", Cond(orm.NewCondition().And("int_val__in", []int32{0}))},
+			{"int_val__in int", Cond(orm.NewCondition().And("int_val__in", []int{0}))},
+			{"string_val contains", Cond("string_val contains {0}", "hello world")},
+		}
 
-		b.Run(fmt.Sprintf("XOrm.List/%d", count), func(b *testing.B) {
+		for _, cond := range conds {
 			Watch()
-			List(model, cond)
+			List(model) // 读取至缓存
 			Defer()
-		})
 
-		b.Run(fmt.Sprintf("XOrm.Model.List/%d", count), func(b *testing.B) {
-			var rets []*TestBaseModel
-			model.List(&rets, cond)
-		})
+			b.Run(fmt.Sprintf("XOrm.List/%d/%s", count, cond.Name), func(b *testing.B) {
+				Watch()
+				List(model, cond.Cond)
+				Defer()
+			})
+
+			b.Run(fmt.Sprintf("XOrm.Model.List/%d/%s", count, cond.Name), func(b *testing.B) {
+				var rets []*TestBaseModel
+				model.List(&rets, cond.Cond)
+			})
+		}
 	}
 }
