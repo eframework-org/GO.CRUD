@@ -571,9 +571,9 @@ func (md *Model[T]) Matchs(cond ...*Condition) bool {
 		return false
 	}
 
-	if cond[0].matchCtx == nil {
+	cond[0].matchOnce.Do(func() {
 		cond[0].matchCtx = &matchContext{}
-	}
+	})
 	return doMatch(md.this, meta, getCondParams(cond[0].Base), cond[0].matchCtx, 0)
 }
 

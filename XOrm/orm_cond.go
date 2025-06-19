@@ -17,10 +17,11 @@ import (
 
 // Condition 表示一个查询条件，包含基础条件和分页信息。
 type Condition struct {
-	Base     *orm.Condition // 基础条件
-	Limit    int            // 分页限定
-	Offset   int            // 分页偏移
-	matchCtx *matchContext
+	Base      *orm.Condition // 基础条件
+	Limit     int            // 分页限定
+	Offset    int            // 分页偏移
+	matchCtx  *matchContext  //缓存条件值的上下文类型
+	matchOnce sync.Once      //缓存条件值的锁
 }
 
 // 缓存in条件值的上下文类型
