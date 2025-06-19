@@ -571,11 +571,14 @@ func (md *Model[T]) Matchs(cond ...*Condition) bool {
 		return false
 	}
 
-	return doMatch(md.this, meta, getCondParams(cond[0].Base))
+	if cond[0].matchCtx == nil {
+		cond[0].matchCtx = &matchContext{}
+	}
+	return doMatch(md.this, meta, getCondParams(cond[0].Base), cond[0].matchCtx, 0)
 }
 
 // doMatch 内部匹配方法
-func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue) bool {
+func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue, ctx *matchContext, depth int) bool {
 	if conds == nil {
 		return false
 	}
@@ -590,7 +593,7 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue) bool {
 		}
 
 		if cond.isCond {
-			if doMatch(model, meta, getCondParams(cond.cond)) == !cond.isNot {
+			if doMatch(model, meta, getCondParams(cond.cond), ctx, depth+1) == !cond.isNot {
 				if !hasNext || nextCond.isOr {
 					return true
 				}
@@ -598,7 +601,7 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue) bool {
 				return false
 			}
 		} else {
-			if doComp(model, meta, cond) == !cond.isNot {
+			if doComp(model, meta, cond, ctx, depth) == !cond.isNot {
 				if !hasNext || nextCond.isOr {
 					return true
 				}
@@ -614,7 +617,7 @@ func doMatch(model IModel, meta *modelMeta, conds []beegoCondValue) bool {
 //
 //	整型支持: Int,Int32,Int64
 //	浮点支持: Float32,Float64
-func doComp(model IModel, meta *modelMeta, cond beegoCondValue) bool {
+func doComp(model IModel, meta *modelMeta, cond beegoCondValue, ctx *matchContext, depth int) bool {
 	if !isValidCondition(cond) {
 		return false
 	}
@@ -630,7 +633,7 @@ func doComp(model IModel, meta *modelMeta, cond beegoCondValue) bool {
 	case "isnull":
 		return isNullValue(cvalue, ctype)
 	case "in":
-		return handleInOperator(cvalue, cond.args)
+		return handleInOperator(cvalue, cond.sql, cond.args, ctx, depth)
 	case "exact", "ne":
 		return handleExactOperator(cvalue, ctype, operator, cond.args[0])
 	case "gt", "gte", "lt", "lte":
@@ -675,30 +678,60 @@ func isNullValue(value any, typ reflect.Type) bool {
 }
 
 // 处理 IN 操作符
-func handleInOperator(cvalue any, args []any) bool {
+func handleInOperator(cvalue any, sqlTxt string, args []any, ctx *matchContext, depth int) bool {
 	if len(args) == 0 {
 		return false
 	}
 
 	switch firstArgs := args[0].(type) {
 	case []int32:
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleIntegerInOperator(cvalue, val.([]int64))
+		}
 		cargs := make([]int64, len(firstArgs))
 		for ind, val := range firstArgs {
 			cargs[ind] = int64(val)
 		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleIntegerInOperator(cvalue, actual.([]int64))
+		}
 		return handleIntegerInOperator(cvalue, cargs)
 	case []int:
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleIntegerInOperator(cvalue, val.([]int64))
+		}
 		cargs := make([]int64, len(firstArgs))
 		for ind, val := range firstArgs {
 			cargs[ind] = int64(val)
+		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleIntegerInOperator(cvalue, actual.([]int64))
 		}
 		return handleIntegerInOperator(cvalue, cargs)
 	case []int64:
 		return handleIntegerInOperator(cvalue, firstArgs)
 	case []float32:
+		inCacheKey := inCacheKey{Field: sqlTxt, Depth: depth}
+		if val, ok := ctx.inCache.Load(inCacheKey); ok {
+			return handleIntegerInOperator(cvalue, val.([]int64))
+		}
 		cargs := make([]float64, len(firstArgs))
 		for ind, val := range firstArgs {
 			cargs[ind] = float64(val)
+		}
+		// 双检加 LoadOrStore，避免被其他 goroutine 也写入了
+		actual, loaded := ctx.inCache.LoadOrStore(inCacheKey, cargs)
+		if loaded {
+			// 已有缓存，丢弃刚创建的 cargs，使用已有的
+			return handleIntegerInOperator(cvalue, actual.([]int64))
 		}
 		return handleFloatInOperator(cvalue, cargs)
 	case []float64:

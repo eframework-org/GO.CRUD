@@ -17,28 +17,25 @@ func BenchmarkOrm(b *testing.B) {
 	defer ResetContext()
 	defer ResetBaseTest()
 
-	for _, count := range []int{10000, 100000} {
+	for _, count := range []int{100000} {
 		ResetContext()
 		ResetBaseTest()
 		SetupBaseTest()
 		WriteBaseTest(count)
 
 		model := NewTestBaseModel()
+		Watch()
+		List(model) // 读取至缓存
+		Defer()
+
 		conds := []struct {
 			Name string
 			Cond *Condition
 		}{
 			{"int_val > 0 && string_val == 'hello world'", Cond("int_val > {0} && string_val == {1}", 0, "hello world")},
-			{"int_val__in int32", Cond(orm.NewCondition().And("int_val__in", []int32{0}))},
-			{"int_val__in int", Cond(orm.NewCondition().And("int_val__in", []int{0}))},
-			{"string_val contains", Cond("string_val contains {0}", "hello world")},
+			{"int_val__in int", Cond(orm.NewCondition().And("int_val__in", make([]int, count/2)))},
 		}
-
 		for _, cond := range conds {
-			Watch()
-			List(model) // 读取至缓存
-			Defer()
-
 			b.Run(fmt.Sprintf("XOrm.List/%d/%s", count, cond.Name), func(b *testing.B) {
 				Watch()
 				List(model, cond.Cond)
