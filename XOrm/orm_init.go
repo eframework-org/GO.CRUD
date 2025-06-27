@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/beego/beego/v2/client/orm"
+	"github.com/eframework-org/GO.UTIL/XEnv"
 	"github.com/eframework-org/GO.UTIL/XLog"
 	"github.com/eframework-org/GO.UTIL/XPrefs"
+	"github.com/eframework-org/GO.UTIL/XString"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -44,7 +46,7 @@ func initOrm(prefs XPrefs.IBase) {
 		ormAlias := parts[3]
 
 		if base := prefs.Get(key).(XPrefs.IBase); base != nil {
-			ormAddr := base.GetString(prefsOrmAddr)
+			ormAddr := XString.Eval(base.GetString(prefsOrmAddr), XEnv.Vars())
 			ormPool := base.GetInt(prefsOrmPool)
 			ormConn := base.GetInt(prefsOrmConn)
 			if err := orm.RegisterDataBase(ormAlias, ormType, ormAddr,
