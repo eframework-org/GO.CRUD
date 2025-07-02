@@ -451,7 +451,7 @@ func (md *Model[T]) Clear(cond ...*Condition) int {
 	} else {
 		qsetter := ormer.QueryTable(md.this.TableName())
 		var ncond *Condition
-		if len(cond) > 0 && cond[0] != nil {
+		if len(cond) > 0 && cond[0] != nil && len(getCondParams(cond[0].Base)) > 0 {
 			ncond = cond[0]
 		} else {
 			// beego orm 的 Delete 方法不支持条件，所以需要使用主键字段 >= 0 作为条件，这样可以匹配所有记录
