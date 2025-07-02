@@ -610,7 +610,7 @@ func doMatch(model IModel, meta *modelMeta, ctx *Condition, conds []beegoCondVal
 	return true
 }
 
-// 根据指定操作符对字段进行比较。
+// doComp 根据指定操作符对字段进行比较。
 //
 //	整型支持: Int, Int32, Int64
 //	浮点支持: Float32, Float64
@@ -643,7 +643,7 @@ func doComp(model IModel, meta *modelMeta, ctx *Condition, cond beegoCondValue, 
 	}
 }
 
-// 解析条件表达式。
+// parseCondition 解析条件表达式。
 func parseCondition(cond beegoCondValue) (field, operator string) {
 	field = cond.exprs[0]
 	operator = "exact"
@@ -653,7 +653,7 @@ func parseCondition(cond beegoCondValue) (field, operator string) {
 	return
 }
 
-// 获取字段值。
+// getFieldValue 获取字段值。
 func getFieldValue(model IModel, meta *modelMeta, field string) any {
 	if fmeta := meta.fields.columns[field]; fmeta != nil {
 		return model.DataValue(fmeta.name)
@@ -661,7 +661,7 @@ func getFieldValue(model IModel, meta *modelMeta, field string) any {
 	return nil
 }
 
-// 判断是否为空值。
+// isNullValue 判断是否为空值。
 func isNullValue(value any, typ reflect.Type) bool {
 	if typ.Kind() == reflect.String {
 		return value == ""
@@ -676,7 +676,7 @@ type operatorKey struct {
 	depth    int    // 遍历深度
 }
 
-// 处理 IN 操作符。
+// handleInOperator 处理 IN 操作符。
 func handleInOperator(ctx *Condition, cvalue any, args []any, field string, depth int) bool {
 	if len(args) == 0 {
 		return false
@@ -825,7 +825,7 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 	return false
 }
 
-// 处理精确匹配操作符。
+// handleExactOperator 处理精确匹配操作符。
 func handleExactOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	switch {
 	case isNumericType(ctype):
@@ -837,7 +837,7 @@ func handleExactOperator(cvalue any, ctype reflect.Type, operator string, arg an
 	}
 }
 
-// 处理数值类型的精确匹配。
+// handleNumericExactOperator 处理数值类型的精确匹配。
 func handleNumericExactOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if isIntegerType(ctype) {
 		return handleIntegerExactOperator(cvalue, operator, arg)
@@ -845,7 +845,7 @@ func handleNumericExactOperator(cvalue any, ctype reflect.Type, operator string,
 	return handleFloatExactOperator(cvalue, operator, arg)
 }
 
-// 处理整数类型的精确匹配。
+// handleIntegerExactOperator 处理整数类型的精确匹配。
 func handleIntegerExactOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -859,7 +859,7 @@ func handleIntegerExactOperator(cvalue any, operator string, arg any) bool {
 	return cval != val
 }
 
-// 处理浮点类型的精确匹配。
+// handleFloatExactOperator 处理浮点类型的精确匹配。
 func handleFloatExactOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toFloat64(cvalue)
 	val, ok2 := toFloat64(arg)
@@ -873,7 +873,7 @@ func handleFloatExactOperator(cvalue any, operator string, arg any) bool {
 	return cval != val
 }
 
-// 处理比较操作符。
+// handleComparisonOperator 处理比较操作符。
 func handleComparisonOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if !isNumericType(ctype) {
 		return false
@@ -885,7 +885,7 @@ func handleComparisonOperator(cvalue any, ctype reflect.Type, operator string, a
 	return handleFloatComparisonOperator(cvalue, operator, arg)
 }
 
-// 处理整数类型的比较操作。
+// handleIntegerComparisonOperator 处理整数类型的比较操作。
 func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -907,7 +907,7 @@ func handleIntegerComparisonOperator(cvalue any, operator string, arg any) bool 
 	}
 }
 
-// 处理浮点类型的比较操作。
+// handleFloatComparisonOperator 处理浮点类型的比较操作。
 func handleFloatComparisonOperator(cvalue any, operator string, arg any) bool {
 	cval, ok1 := toInt64(cvalue)
 	val, ok2 := toInt64(arg)
@@ -929,7 +929,7 @@ func handleFloatComparisonOperator(cvalue any, operator string, arg any) bool {
 	}
 }
 
-// 处理字符串操作符。
+// handleStringOperator 处理字符串操作符。
 func handleStringOperator(cvalue any, ctype reflect.Type, operator string, arg any) bool {
 	if ctype.Kind() != reflect.String {
 		return false
@@ -950,11 +950,12 @@ func handleStringOperator(cvalue any, ctype reflect.Type, operator string, arg a
 	}
 }
 
-// 类型判断辅助函数。
+// isNumericType 是类型判断辅助函数。
 func isNumericType(t reflect.Type) bool {
 	return isIntegerType(t) || isFloatType(t)
 }
 
+// isIntegerType 判断是否整数类型。
 func isIntegerType(t reflect.Type) bool {
 	switch t.Kind() {
 	case reflect.Int, reflect.Int32, reflect.Int64:
@@ -964,6 +965,7 @@ func isIntegerType(t reflect.Type) bool {
 	}
 }
 
+// isFloatType 判断是否浮点类型。
 func isFloatType(t reflect.Type) bool {
 	switch t.Kind() {
 	case reflect.Float32, reflect.Float64:
@@ -973,7 +975,7 @@ func isFloatType(t reflect.Type) bool {
 	}
 }
 
-// Int64 类型转换辅助函数。
+// toInt64 是 Int64 类型转换辅助函数。
 func toInt64(v any) (int64, bool) {
 	switch val := v.(type) {
 	case int:
@@ -983,11 +985,15 @@ func toInt64(v any) (int64, bool) {
 	case int64:
 		return val, true
 	default:
+		rv := reflect.ValueOf(v)
+		if isIntegerType(rv.Type()) {
+			return rv.Int(), true
+		}
 		return 0, false
 	}
 }
 
-// Float64 类型转换辅助函数。
+// toFloat64 是 Float64 类型转换辅助函数。
 func toFloat64(v any) (float64, bool) {
 	if v == nil {
 		return 0, false
