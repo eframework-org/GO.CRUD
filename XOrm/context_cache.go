@@ -131,7 +131,7 @@ func setGlobalCache(model IModel) {
 		if !gobj.IsValid() {
 			// 若是被标记为删除的数据，则不算覆盖
 		} else {
-			XLog.Error("XOrm.Cache.setGlobalCache: %v has been overwritten: %v", name, XLog.Caller(1, false))
+			XLog.Error("XOrm.Cache.setGlobalCache: data of %v has been overwritten.", name)
 		}
 	}
 }
@@ -156,7 +156,7 @@ func setSessionCache(gid int64, model IModel) *sessionObject {
 		if !sobj.ptr.IsValid() {
 			// 若是被标记为删除的数据，则不算覆盖
 		} else {
-			XLog.Error("XOrm.Cache.setSessionCache: %v has been overwritten: %v", name, XLog.Caller(1, false))
+			XLog.Error("XOrm.Cache.setSessionCache: data of %v has been overwritten.", name)
 		}
 		sobj.ptr = model
 		sobj.raw = model.Clone()
@@ -221,7 +221,7 @@ func globalWait(source string, model IModel) {
 		XLog.Notice("XOrm.Cache.globalWait: [%v] %v wait for unlock.", source, model.ModelUnique())
 		wg.Wait()
 		globalLockMap.Delete(model.ModelUnique())
-		XLog.Notice("XOrm.Cache.globalWait: [%v] %v unlock cost %.2fms", source, model.ModelUnique(), float64(XTime.GetMicrosecond()-t)/1e3)
+		XLog.Notice("XOrm.Cache.globalWait: [%v] %v unlock cost %.2fms.", source, model.ModelUnique(), float64(XTime.GetMicrosecond()-t)/1e3)
 	}
 }
 

@@ -247,7 +247,7 @@ func (cb *commitBatch) submit(gid ...int64) {
 		commitGauge.Add(delta)
 		commitGauges[queueID].Add(delta)
 	default:
-		XLog.Critical("XOrm.Commit.Submit: too many data to submit: %v", XLog.Caller(1, false))
+		XLog.Critical("XOrm.Commit.Submit: too many data to submit.")
 	}
 }
 

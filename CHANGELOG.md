@@ -6,6 +6,7 @@
 
 ### 修复
 - 修复 XOrm/model_base.go 模块 toInt64 函数的类型断言问题
+- 修复 XOrm 模块 setGlobalCache/setSessionCache 不适合的堆栈输出问题
 
 ## [0.0.7] - 2025-06-19
 ### 修复
