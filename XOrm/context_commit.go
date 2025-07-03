@@ -200,7 +200,7 @@ func setupCommit(prefs XPrefs.IBase) {
 	}
 	wg.Wait()
 
-	XLog.Notice("XOrm.Commit.Setup: queue of commit count is %v, capacity of queue is %v.", commitQueueCount, commitQueueCapacity)
+	XLog.Notice("XOrm.Commit.Setup: commit queue size is %v, and each queue has a capacity of %v.", commitQueueCount, commitQueueCapacity)
 }
 
 // commitBatch 定义了一批需要处理的数据对象，用于批量异步处理数据变更。
