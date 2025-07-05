@@ -1,10 +1,11 @@
 # 更新记录
 
-## [0.0.8] - 
+## [0.0.8] - 2025-07-05
 ### 变更
 - 新增 XOrm/orm_init.go 模块的 Source 配置字段根据环境变量求值的功能
 - 新增 XOrm/model_base.go 模块的 OnQuery 接口用于实现自定义的查询逻辑
 - 优化 XOrm/context_list.go 模块查询远端大体量数据的处理性能
+- 更新依赖库版本
 
 ### 修复
 - 修复 XOrm/model_base.go 模块 toInt64 函数的类型断言问题
