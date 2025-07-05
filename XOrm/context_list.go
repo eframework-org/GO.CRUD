@@ -5,12 +5,9 @@
 package XOrm
 
 import (
-	"runtime"
 	"sync"
 
-	"github.com/eframework-org/GO.UTIL/XCollect"
 	"github.com/eframework-org/GO.UTIL/XLog"
-	"github.com/eframework-org/GO.UTIL/XLoom"
 	"github.com/eframework-org/GO.UTIL/XTime"
 	"github.com/petermattis/goid"
 )
@@ -119,98 +116,64 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 		if len(frets) > 0 {
 			gcache := getGlobalCache(model)
 			scache := getSessionCache(gid, model)
-
-			// 多线程处理数据
-			dataCount := len(frets)
-			var workerCount = runtime.NumCPU()
-			requiredCount := (dataCount + 1000 - 1) / 1000
-			if requiredCount < workerCount {
-				workerCount = requiredCount
-			}
-			chunkSize := dataCount / workerCount
-			valids := make([]string, 0)
-			var validsMu sync.Mutex
+			var valids sync.Map
 			invalids := make(map[int]struct{})
-			var invalidsMu sync.Mutex
-			var wg sync.WaitGroup
-			for i := range workerCount {
-				wg.Add(1)
-				XLoom.RunAsyncT1(func(workerID int) {
-					defer wg.Done()
-
-					// 每个 goroutine 处理一部分数据
-					startIndex := workerID * chunkSize
-					endIndex := (workerID + 1) * chunkSize
-					if workerID == workerCount-1 {
-						// 最后一个 goroutine 处理剩余的数据
-						endIndex = dataCount
-					}
-
-					for j := startIndex; j < endIndex; j++ {
-						removed := false
-						obj := frets[j]
-						name := obj.DataUnique()
-						var gobj IModel
-						var sobj *sessionObject
-						if meta.cache {
-							if gcache != nil { // 全局内存读取
-								t, _ := gcache.Load(name)
-								if t != nil {
-									gobj = t.(IModel)
-								}
-							}
-						}
-						if scache != nil { // 会话内存读取
-							t, _ := scache.Load(name)
-							if t != nil {
-								sobj = t.(*sessionObject)
-							}
-						}
-						isSCache := false
-						if sobj != nil { // 使用会话内存数据替换之
-							if !sobj.ptr.IsValid() { // 忽略无效数据
-								// 已经被标记删除，则不读取
-								removed = true
-								invalidsMu.Lock()
-								invalids[j] = struct{}{}
-								invalidsMu.Unlock()
-								XLog.Notice("XOrm.List: session object is marked as invalid or deleted: %v", name)
-							} else {
-								frets[j] = sobj.ptr.(T)
-								isSCache = true
-								XLog.Notice("XOrm.List: using global object: %v", name)
-							}
-						} else if gobj != nil && !isSCache { // 已经在全局内存中，但不在会话内存中
-							if !gobj.IsValid() {
-								// 已经被标记删除，则不读取
-								removed = true
-								invalidsMu.Lock()
-								invalids[j] = struct{}{}
-								invalidsMu.Unlock()
-								XLog.Notice("XOrm.List: global object is marked as invalid: %v", name)
-							} else {
-								nobj := gobj.Clone() // 内存拷贝
-								frets[j] = nobj.(T)
-								sobj := setSessionCache(gid, nobj) // 监控内存
-								sobj.isWritable(writable)
-								XLog.Notice("XOrm.List: using global object: %v", name)
-							}
-						} else { // 既不在会话内存中，也不在全局内存中
-							if meta.cache {
-								setGlobalCache(obj.Clone()) // 内存拷贝
-							}
-							sobj := setSessionCache(gid, obj) // 监控内存
-							sobj.isWritable(writable)
-						}
-						if !removed {
-							validsMu.Lock()
-							valids = append(valids, name)
-							validsMu.Unlock()
+			for i := range frets {
+				removed := false
+				obj := frets[i]
+				name := obj.DataUnique()
+				var gobj IModel
+				var sobj *sessionObject
+				if meta.cache {
+					if gcache != nil { // 全局内存读取
+						t, _ := gcache.Load(name)
+						if t != nil {
+							gobj = t.(IModel)
 						}
 					}
-				}, i)
+				}
+				if scache != nil { // 会话内存读取
+					t, _ := scache.Load(name)
+					if t != nil {
+						sobj = t.(*sessionObject)
+					}
+				}
+				isSCache := false
+				if sobj != nil { // 使用会话内存数据替换之
+					if !sobj.ptr.IsValid() { // 忽略无效数据
+						// 已经被标记删除，则不读取
+						removed = true
+						invalids[i] = struct{}{}
+						XLog.Notice("XOrm.List: session object is marked as invalid or deleted: %v", name)
+					} else {
+						frets[i] = sobj.ptr.(T)
+						isSCache = true
+						XLog.Notice("XOrm.List: using global object: %v", name)
+					}
+				} else if gobj != nil && !isSCache { // 已经在全局内存中，但不在会话内存中
+					if !gobj.IsValid() {
+						// 已经被标记删除，则不读取
+						removed = true
+						invalids[i] = struct{}{}
+						XLog.Notice("XOrm.List: global object is marked as invalid: %v", name)
+					} else {
+						nobj := gobj.Clone() // 内存拷贝
+						frets[i] = nobj.(T)
+						sobj := setSessionCache(gid, nobj) // 监控内存
+						sobj.isWritable(writable)
+						XLog.Notice("XOrm.List: using global object: %v", name)
+					}
+				} else { // 既不在会话内存中，也不在全局内存中
+					if meta.cache {
+						setGlobalCache(obj.Clone()) // 内存拷贝
+					}
+					sobj := setSessionCache(gid, obj) // 监控内存
+					sobj.isWritable(writable)
+				}
+				if !removed {
+					valids.Store(name, struct{}{})
+				}
 			}
-			wg.Wait()
 
 			// 移除被标记为删除的
 			if len(invalids) > 0 {
@@ -228,28 +191,23 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 			// 还是要尽量避免这样使用
 			if scache != nil { // 遍历会话内存
 				var chunks [][]T
-				var chunkValids [][]string
 				scache.RangeConcurrent(func(index int, key, value any) bool {
 					skey := key.(string)
 					sobj := value.(*sessionObject)
 					if !sobj.ptr.IsValid() { // 忽略无效数据
-					} else if !XCollect.Contains(valids, skey) && !XCollect.Contains(chunkValids[index], skey) {
-						if sobj.ptr.Matchs(cond) {
-							chunkValids[index] = append(chunkValids[index], skey) // 在会话内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
-							chunks[index] = append(chunks[index], sobj.ptr.(T))
-							XLog.Notice("XOrm.List: add session object: %v", skey)
-						}
+						return true
+					}
+					if _, exists := valids.Load(skey); !exists && sobj.ptr.Matchs(cond) {
+						valids.Store(skey, struct{}{})
+						chunks[index] = append(chunks[index], sobj.ptr.(T))
+						XLog.Notice("XOrm.List: add session object: %v", skey)
 					}
 					return true
 				}, func(worker int) {
 					chunks = make([][]T, worker)
-					chunkValids = make([][]string, worker)
 				})
 				for _, chunk := range chunks {
 					frets = append(frets, chunk...)
-				}
-				for _, chunkValid := range chunkValids {
-					valids = append(valids, chunkValid...)
 				}
 			}
 			if meta.cache {
@@ -260,7 +218,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 						gkey := key.(string)
 						gobj := value.(IModel)
 						if !gobj.IsValid() {
-						} else if !XCollect.Contains(valids, gkey) {
+						} else if _, exists := valids.Load(gkey); !exists {
 							if gobj.Matchs(cond) {
 								added.Store(gkey, gobj)
 							}
@@ -271,7 +229,7 @@ func List[T IModel](model T, writableAndCond ...any) []T {
 					added.Range(func(key, value any) bool {
 						gkey := key.(string)
 						gobj := value.(IModel)
-						valids = append(valids, gkey)      // 在全局内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
+						//valids = append(valids, gkey)      // 在全局内存中，但是不在远端的，且满足筛选条件的，亦加入frets中
 						nobj := gobj.Clone()               // 内存拷贝
 						sobj := setSessionCache(gid, nobj) // 监控内存
 						sobj.isWritable(writable)
