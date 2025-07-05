@@ -107,6 +107,7 @@ type IModel interface {
 	// Clear 清理符合条件的记录。
 	// cond 为可选的查询条件，若不指定则清理所有记录。
 	// 返回受影响的行数，如果发生错误则返回 -1。
+	// 注意：MySQL Connector 最大的参数是 65535，清理大量数据时可能会触发错误：Prepared statement contains too many placeholders，解决方法为分批执行清理。
 	Clear(cond ...*Condition) int
 
 	// IsValid 检查或设置对象的有效性。
@@ -488,6 +489,7 @@ func (md *Model[T]) Delete() int {
 // Clear 清理符合条件的记录。
 // cond 为可选的查询条件，若不指定则清理所有记录。
 // 返回受影响的行数，如果发生错误则返回 -1。
+// 注意：MySQL Connector 最大的参数是 65535，清理大量数据时可能会触发错误：Prepared statement contains too many placeholders，解决方法为分批执行清理。
 func (md *Model[T]) Clear(cond ...*Condition) int {
 	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
 		XLog.Error("XOrm.Model.Clear(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
