@@ -287,6 +287,9 @@ func (md *Model[T]) Max(column ...string) int {
 			XLog.Error("XOrm.Model.Max(%v): empty result count.", md.this.TableName(), err)
 			return -1
 		}
+		if result[0] == nil { // 空表返回的计数为 nil，这里返回 0。
+			return 0
+		}
 		val, ok := toInt64(result[0])
 		if !ok {
 			XLog.Error("XOrm.Model.Max(%v): parse result failed: %v.", md.this.TableName(), result[0])
@@ -332,6 +335,9 @@ func (md *Model[T]) Min(column ...string) int {
 		if count <= 0 || len(result) <= 0 {
 			XLog.Error("XOrm.Model.Min(%v): empty result count.", md.this.TableName(), err)
 			return -1
+		}
+		if result[0] == nil { // 空表返回的计数为 nil，这里返回 0。
+			return 0
 		}
 		val, ok := toInt64(result[0])
 		if !ok {
