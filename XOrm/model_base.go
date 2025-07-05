@@ -26,13 +26,21 @@ type IModel interface {
 
 	// OnEncode 在对象编码前调用。
 	// 子类可以重写此方法以实现自定义的编码逻辑。
-	// 通常用于在数据持久化前对字段进行预处理。
+	// 通常用于在数据写入前对字段进行预处理。
 	OnEncode()
 
 	// OnDecode 在对象解码后调用。
 	// 子类可以重写此方法以实现自定义的解码逻辑。
 	// 通常用于在数据读取后对字段进行后处理。
 	OnDecode()
+
+	// OnQuery 在执行查询时调用。
+	// 子类可以重写此方法以实现自定义的查询逻辑。
+	// 通常用于在执行查询前追加一个全局的条件，如数据分区等。
+	// action 是查询的类型，包括：Count、Max、Min、Read、List、Delete、Clear。
+	// cond 是查询的条件，传入的值可能为空。
+	// 返回执行查询的最终条件。
+	OnQuery(action string, cond *orm.Condition) *orm.Condition
 
 	// AliasName 返回数据库别名。
 	// 返回值用于标识不同的数据库连接。
@@ -74,11 +82,6 @@ type IModel interface {
 	// 返回最小值，如果发生错误则返回 -1。
 	Min(column ...string) int
 
-	// Delete 删除当前记录。
-	// 使用主键作为删除条件。
-	// 返回受影响的行数，如果发生错误则返回 -1。
-	Delete() int
-
 	// Write 写入或更新当前记录。
 	// 在写入前会调用 OnEncode 进行编码处理。
 	// 返回受影响的行数，如果发生错误则返回 -1。
@@ -95,6 +98,11 @@ type IModel interface {
 	// cond 为可选的查询条件，可以指定偏移量和限制数量。
 	// 返回查询到的记录数量，如果发生错误则返回 -1。
 	List(rets any, cond ...*Condition) int
+
+	// Delete 删除当前记录。
+	// 使用主键作为删除条件。
+	// 返回受影响的行数，如果发生错误则返回 -1。
+	Delete() int
 
 	// Clear 清理符合条件的记录。
 	// cond 为可选的查询条件，若不指定则清理所有记录。
@@ -148,11 +156,21 @@ func (md *Model[T]) Ctor(obj any) {
 
 // OnEncode 在对象编码前调用。
 // 子类可以重写此方法以实现自定义的编码逻辑。
+// 通常用于在数据写入前对字段进行预处理。
 func (md *Model[T]) OnEncode() {}
 
 // OnDecode 在对象解码后调用。
 // 子类可以重写此方法以实现自定义的解码逻辑。
+// 通常用于在数据读取后对字段进行后处理。
 func (md *Model[T]) OnDecode() {}
+
+// OnQuery 在执行查询时调用。
+// 子类可以重写此方法以实现自定义的查询逻辑。
+// 通常用于在执行查询前追加一个全局的条件，如数据分区等。
+// action 是查询的类型，包括：Count、Max、Min、Read、List、Delete、Clear。
+// cond 是查询的条件，传入的值可能为空。
+// 返回执行查询的最终条件。
+func (md *Model[T]) OnQuery(action string, cond *orm.Condition) *orm.Condition { return cond }
 
 // AliasName 返回数据库别名。
 // 此方法需要被子类重写，默认会触发 panic。
@@ -211,16 +229,22 @@ func (md *Model[T]) Count(cond ...*Condition) int {
 		XLog.Error("XOrm.Model.Count(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
 	} else {
-		qsetter := ormer.QueryTable(md.this)
+		query := ormer.QueryTable(md.this)
 		if len(cond) > 0 && cond[0] != nil {
-			qsetter = qsetter.SetCond(cond[0].Base)
+			ncond := md.this.OnQuery("Count", cond[0].Base)
+			query = query.SetCond(ncond)
+		} else {
+			ncond := md.this.OnQuery("Count", nil)
+			if ncond != nil {
+				query = query.SetCond(ncond)
+			}
 		}
-		cnt, err := qsetter.Count()
+		count, err := query.Count()
 		if err != nil {
 			XLog.Warn("XOrm.Model.Count(%v): %v", md.this.TableName(), err)
 			return -1
 		} else {
-			return int(cnt)
+			return int(count)
 		}
 	}
 }
@@ -244,25 +268,30 @@ func (md *Model[T]) Max(column ...string) int {
 			}
 		}
 		if name == "" {
-			XLog.Error("XOrm.Model.Max(%v): column was empty.", md.this.ModelUnique())
+			XLog.Error("XOrm.Model.Max(%v): column was empty.", md.this.TableName())
 			return -1
 		}
-
-		name = fmt.Sprintf("MAX(`%v`)", name)
-		sql := fmt.Sprintf("SELECT %v FROM `%v`", name, md.this.TableName())
-		res := ormer.Raw(sql)
-		if _, err := res.Exec(); err != nil {
-			XLog.Warn("XOrm.Model.Max(%v): %v", md.this.TableName(), err)
+		query := ormer.QueryTable(md.this)
+		cond := md.this.OnQuery("Max", nil)
+		if cond != nil {
+			query = query.SetCond(cond)
+		}
+		var result orm.ParamsList
+		count, err := query.Aggregate(fmt.Sprintf("MAX(`%v`)", name)).ValuesFlat(&result, name)
+		if err != nil {
+			XLog.Error("XOrm.Model.Max(%v): %v", md.this.TableName(), err)
 			return -1
 		}
-
-		var rows []orm.Params
-		res.Values(&rows)
-		if len(rows) > 0 && rows[0] != nil && rows[0][name] != nil {
-			return XString.ToInt(rows[0][name].(string))
+		if count <= 0 || len(result) <= 0 {
+			XLog.Error("XOrm.Model.Max(%v): empty result count.", md.this.TableName(), err)
+			return -1
 		}
-
-		return 0
+		val, ok := toInt64(result[0])
+		if !ok {
+			XLog.Error("XOrm.Model.Max(%v): parse result failed: %v.", md.this.TableName(), result[0])
+			return -1
+		}
+		return int(val)
 	}
 }
 
@@ -285,52 +314,30 @@ func (md *Model[T]) Min(column ...string) int {
 			}
 		}
 		if name == "" {
-			XLog.Error("XOrm.Model.Min(%v): column was empty.", md.this.ModelUnique())
+			XLog.Error("XOrm.Model.Min(%v): column was empty.", md.this.TableName())
 			return -1
 		}
-
-		name = fmt.Sprintf("MIN(`%v`)", name)
-		sql := fmt.Sprintf("SELECT %v FROM `%v`", name, md.this.TableName())
-		res := ormer.Raw(sql)
-		if _, err := res.Exec(); err != nil {
-			XLog.Warn("XOrm.Model.Min(%v): %v", md.this.TableName(), err)
-			return -1
+		query := ormer.QueryTable(md.this)
+		cond := md.this.OnQuery("Min", nil)
+		if cond != nil {
+			query = query.SetCond(cond)
 		}
-
-		var rows []orm.Params
-		res.Values(&rows)
-		if len(rows) > 0 && rows[0] != nil && rows[0][name] != nil {
-			return XString.ToInt(rows[0][name].(string))
-		}
-		return 0
-	}
-}
-
-// Delete 删除当前记录。
-// 使用主键作为删除条件。
-// 返回受影响的行数，如果发生错误则返回 -1。
-func (md *Model[T]) Delete() int {
-	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
-		XLog.Error("XOrm.Model.Delete(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
-		return -1
-	} else {
-		meta := getModelMeta(md.this)
-		if meta == nil {
-			XLog.Error("XOrm.Model.Delete(%v): model info is nil", md.this.TableName())
-			return -1
-		}
-		if meta.fields.pk == nil {
-			XLog.Error("XOrm.Model.Delete(%v): primary key was not found", md.this.TableName())
-			return -1
-		}
-		cond := orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name)) // 附加主键值
-		qsetter := ormer.QueryTable(md.this).SetCond(cond)
-		count, err := qsetter.Delete()
+		var result orm.ParamsList
+		count, err := query.Aggregate(fmt.Sprintf("MIN(`%v`)", name)).ValuesFlat(&result, name)
 		if err != nil {
-			XLog.Error("XOrm.Model.Delete(%v): %v", md.this.TableName(), err)
+			XLog.Error("XOrm.Model.Min(%v): %v", md.this.TableName(), err)
 			return -1
 		}
-		return int(count)
+		if count <= 0 || len(result) <= 0 {
+			XLog.Error("XOrm.Model.Min(%v): empty result count.", md.this.TableName(), err)
+			return -1
+		}
+		val, ok := toInt64(result[0])
+		if !ok {
+			XLog.Error("XOrm.Model.Min(%v): parse result failed: %v.", md.this.TableName(), result[0])
+			return -1
+		}
+		return int(val)
 	}
 }
 
@@ -371,15 +378,17 @@ func (md *Model[T]) Read(cond ...*Condition) bool {
 			XLog.Error("XOrm.Model.Read(%v): primary key was not found", md.this.TableName())
 			return false
 		}
-		qsetter := ormer.QueryTable(md.this)
+		query := ormer.QueryTable(md.this)
 		if len(cond) > 0 && cond[0] != nil {
-			ncond := cond[0]
-			qsetter = qsetter.SetCond(ncond.Base)
+			ncond := md.this.OnQuery("Read", cond[0].Base)
+			query = query.SetCond(ncond)
 		} else {
-			qsetter = qsetter.SetCond(orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name))) // 附加主键值
+			ncond := orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name)) // 附加主键值
+			ncond = md.this.OnQuery("Read", ncond)
+			query = query.SetCond(ncond)
 		}
-		that := md.this // qsetter.One() 会修改对象，所以需要暂存指针
-		e := qsetter.One(that)
+		that := md.this // query.One() 会修改对象，所以需要暂存指针
+		e := query.One(that)
 		md.this = that // 恢复指针
 		if e != nil {
 			XLog.Warn("XOrm.Model.Read(%v): %v", md.this.TableName(), e)
@@ -407,19 +416,25 @@ func (md *Model[T]) List(rets any, cond ...*Condition) int {
 			return -1
 		}
 
-		qsetter := ormer.QueryTable(md.this)
+		query := ormer.QueryTable(md.this)
 		if len(cond) > 0 && cond[0] != nil {
-			ncond := cond[0]
-			qsetter = qsetter.SetCond(ncond.Base)
-			if ncond.Offset > 0 {
-				qsetter = qsetter.Offset(ncond.Offset)
+			cond0 := cond[0]
+			ncond := md.this.OnQuery("List", cond0.Base)
+			query = query.SetCond(ncond)
+			if cond0.Offset > 0 {
+				query = query.Offset(cond0.Offset)
 			}
-			if ncond.Limit > 0 {
-				qsetter = qsetter.Limit(ncond.Limit)
+			if cond0.Limit > 0 {
+				query = query.Limit(cond0.Limit)
+			}
+		} else {
+			ncond := md.this.OnQuery("List", nil)
+			if ncond != nil {
+				query = query.SetCond(ncond)
 			}
 		}
 
-		tcount, terr := qsetter.All(val.Elem().Addr().Interface())
+		tcount, terr := query.All(val.Elem().Addr().Interface())
 		if terr != nil {
 			XLog.Warn("XOrm.Model.List(%v): %v", md.this.TableName(), terr)
 			return -1
@@ -441,6 +456,35 @@ func (md *Model[T]) List(rets any, cond ...*Condition) int {
 	}
 }
 
+// Delete 删除当前记录。
+// 使用主键作为删除条件。
+// 返回受影响的行数，如果发生错误则返回 -1。
+func (md *Model[T]) Delete() int {
+	if ormer := orm.NewOrmUsingDB(md.this.AliasName()); ormer == nil {
+		XLog.Error("XOrm.Model.Delete(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
+		return -1
+	} else {
+		meta := getModelMeta(md.this)
+		if meta == nil {
+			XLog.Error("XOrm.Model.Delete(%v): model info is nil", md.this.TableName())
+			return -1
+		}
+		if meta.fields.pk == nil {
+			XLog.Error("XOrm.Model.Delete(%v): primary key was not found", md.this.TableName())
+			return -1
+		}
+		cond := orm.NewCondition().And(meta.fields.pk.column, md.this.DataValue(meta.fields.pk.name)) // 附加主键值
+		cond = md.this.OnQuery("Delete", cond)
+		query := ormer.QueryTable(md.this).SetCond(cond)
+		count, err := query.Delete()
+		if err != nil {
+			XLog.Error("XOrm.Model.Delete(%v): %v", md.this.TableName(), err)
+			return -1
+		}
+		return int(count)
+	}
+}
+
 // Clear 清理符合条件的记录。
 // cond 为可选的查询条件，若不指定则清理所有记录。
 // 返回受影响的行数，如果发生错误则返回 -1。
@@ -449,7 +493,7 @@ func (md *Model[T]) Clear(cond ...*Condition) int {
 		XLog.Error("XOrm.Model.Clear(%v): failed to create orm instance of %v.", md.this.TableName(), md.this.AliasName())
 		return -1
 	} else {
-		qsetter := ormer.QueryTable(md.this.TableName())
+		query := ormer.QueryTable(md.this.TableName())
 		var ncond *Condition
 		if len(cond) > 0 && cond[0] != nil && len(getCondParams(cond[0].Base)) > 0 {
 			ncond = cond[0]
@@ -467,15 +511,15 @@ func (md *Model[T]) Clear(cond ...*Condition) int {
 			ncond = Cond(fmt.Sprintf("%v >= {0}", meta.fields.pk.column), 0)
 		}
 
-		qsetter = qsetter.SetCond(ncond.Base)
+		query = query.SetCond(md.this.OnQuery("Clear", ncond.Base))
 		if ncond.Offset > 0 {
-			qsetter = qsetter.Offset(ncond.Offset)
+			query = query.Offset(ncond.Offset)
 		}
 		if ncond.Limit > 0 {
-			qsetter = qsetter.Limit(ncond.Limit)
+			query = query.Limit(ncond.Limit)
 		}
 
-		count, err := qsetter.Delete()
+		count, err := query.Delete()
 		if err != nil {
 			XLog.Error("XOrm.Model.Clear(%v): %v", md.this.TableName(), err)
 			return -1
@@ -520,8 +564,8 @@ func (md *Model[T]) Clone() IModel {
 // Json 将对象转换为 JSON 字符串。
 // 返回 JSON 格式的字符串表示。
 func (md *Model[T]) Json() string {
-	ret, _ := XObject.ToJson(md.this)
-	return ret
+	result, _ := XObject.ToJson(md.this)
+	return result
 }
 
 // Equals 比较两个对象是否相等。

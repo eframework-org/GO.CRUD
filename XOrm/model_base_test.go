@@ -51,6 +51,10 @@ type TestBaseModel struct {
 	FloatVal             float64 `orm:"column(float_val)"`
 	StringVal            string  `orm:"column(string_val)"`
 	BoolVal              bool    `orm:"column(bool_val)"`
+
+	onEncodeCalled bool
+	onDecodeCalled bool
+	onQueryParams  []any
 }
 
 func (m *TestBaseModel) AliasName() string {
@@ -59,6 +63,17 @@ func (m *TestBaseModel) AliasName() string {
 
 func (m *TestBaseModel) TableName() string {
 	return TestTableName
+}
+
+func (m *TestBaseModel) OnEncode() { m.onEncodeCalled = true }
+
+func (m *TestBaseModel) OnDecode() { m.onDecodeCalled = true }
+
+func (m *TestBaseModel) OnQuery(action string, cond *orm.Condition) *orm.Condition {
+	m.onQueryParams = make([]any, 2)
+	m.onQueryParams[0] = action
+	m.onQueryParams[1] = cond
+	return cond
 }
 
 func NewTestBaseModel() *TestBaseModel {
@@ -175,6 +190,9 @@ func TestModelBasic(t *testing.T) {
 		if count <= 0 {
 			t.Error("写入操作失败")
 		}
+		if !model.onEncodeCalled {
+			t.Error("OnEncode 未被调用。")
+		}
 	})
 
 	// 测试读取
@@ -193,6 +211,9 @@ func TestModelBasic(t *testing.T) {
 		if !nmodel.Equals(models[3]) {
 			t.Error("通过主键读取的数据不匹配")
 		}
+		if !nmodel.onDecodeCalled {
+			t.Error("OnDecode 未被调用。")
+		}
 
 		// 测试条件读取
 		nmodel = NewTestBaseModel()
@@ -204,6 +225,12 @@ func TestModelBasic(t *testing.T) {
 		if !nmodel.Equals(models[3]) {
 			t.Error("通过条件读取的数据不匹配")
 		}
+		if !nmodel.onDecodeCalled {
+			t.Error("OnDecode 未被调用。")
+		}
+
+		// 因为 Read 行为是覆盖对象的
+		// 所以无法验证 onQueryParams
 	})
 
 	// 测试删除
@@ -216,6 +243,12 @@ func TestModelBasic(t *testing.T) {
 		count := model.Delete()
 		if count <= 0 {
 			t.Error("通过主键删除失败")
+		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "Delete" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
 		}
 		if model.Read() {
 			t.Error("记录应该已被删除")
@@ -245,6 +278,15 @@ func TestModelList(t *testing.T) {
 		if count != 2 {
 			t.Errorf("预期带条件的计数为 2，实际得到 %d", count)
 		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "Count" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
+		}
+		if model.onQueryParams[1] == nil {
+			t.Errorf("OnQuery 的条件不应为空。")
+		}
 	})
 
 	// 测试List
@@ -262,9 +304,21 @@ func TestModelList(t *testing.T) {
 		if count != 2 {
 			t.Errorf("预期匹配条件的记录有 2 条，实际得到 %d 条", count)
 		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "List" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
+		}
+		if model.onQueryParams[1] == nil {
+			t.Errorf("OnQuery 的条件不应为空。")
+		}
 		for _, result := range results {
 			if result.IntVal <= 3 {
 				t.Errorf("预期 IntVal > 3，实际得到 %d", result.IntVal)
+			}
+			if !result.onDecodeCalled {
+				t.Error("OnDecode 应当被调用。")
 			}
 		}
 	})
@@ -296,6 +350,12 @@ func TestModelList(t *testing.T) {
 		if max != 5 {
 			t.Errorf("预期最大值为 5，实际得到 %d", max)
 		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "Max" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
+		}
 	})
 
 	// 测试Min
@@ -303,6 +363,12 @@ func TestModelList(t *testing.T) {
 		min := model.Min("int_val")
 		if min != 1 {
 			t.Errorf("预期最小值为 1，实际得到 %d", min)
+		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "Min" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
 		}
 	})
 
@@ -324,6 +390,15 @@ func TestModelList(t *testing.T) {
 		count = model.Clear(cond)
 		if count != 2 {
 			t.Errorf("预期带条件清除 2 条记录，实际清除了 %d 条", count)
+		}
+		if len(model.onQueryParams) == 0 {
+			t.Error("OnQuery 未被调用。")
+		}
+		if model.onQueryParams[0] != "Clear" {
+			t.Errorf("OnQuery 的类型错误：%v", model.onQueryParams[0])
+		}
+		if model.onQueryParams[1] == nil {
+			t.Errorf("OnQuery 的条件不应为空。")
 		}
 		if model.Count() != 3 {
 			t.Error("条件清除后应该剩余 3 条记录")
