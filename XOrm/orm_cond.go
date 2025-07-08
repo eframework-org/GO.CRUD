@@ -317,13 +317,14 @@ func (parser *exprParser) condition() *orm.Condition {
 		}
 
 		// 应用逻辑操作
-		if logic == "&&" {
+		switch logic {
+		case "&&":
 			if not {
 				cond = cond.AndNotCond(rightCond)
 			} else {
 				cond = cond.AndCond(rightCond)
 			}
-		} else if logic == "||" {
+		case "||":
 			if not {
 				cond = cond.OrNotCond(rightCond)
 			} else {

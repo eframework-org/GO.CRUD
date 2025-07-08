@@ -76,13 +76,14 @@ func (sobj *sessionObject) reset() {
 func (so *sessionObject) isWritable(status ...bool) int {
 	if len(status) >= 1 {
 		// 若该数据已经被标记为读写，则无法修改为只读
-		if so.write == 0 { // 未标记
+		switch so.write {
+		case 0: // 未标记
 			if status[0] {
 				so.write = 2
 			} else {
 				so.write = 1
 			}
-		} else if so.write == 1 { // 只读
+		case 1: // 只读
 			if status[0] {
 				so.write = 2
 			}

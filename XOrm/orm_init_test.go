@@ -84,9 +84,10 @@ func TestOrmInit(t *testing.T) {
 
 			// Test multiple database connections
 			aliases := []string{}
-			if test.name == "single_db_test" {
+			switch test.name {
+			case "single_db_test":
 				aliases = append(aliases, "myalias")
-			} else if test.name == "multiple_db_test" {
+			case "multiple_db_test":
 				aliases = append(aliases, "myalias1", "myalias2")
 			}
 
