@@ -241,7 +241,6 @@ func Defer() {
 									sobj.ptr.OnEncode() // encode for writing object
 								} else if !sobj.ptr.IsValid() { // 标记为删除或无效的数据
 								} else if sobj.isWritable() == 1 { // 只读数据，不对比，不写入
-									return true
 								} else { // 需要对比的数据
 									sobj.ptr.OnEncode() // encode for comparing and writing object
 									update = !sobj.ptr.Equals(sobj.raw)
