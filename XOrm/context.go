@@ -233,6 +233,7 @@ func Defer() {
 							if sobj == nil {
 								return true
 							}
+							dirty := false
 							meta := getModelMeta(sobj.ptr)
 							if meta.writable { // 不处理全局只读数据
 								update := false
@@ -262,7 +263,12 @@ func Defer() {
 									}
 
 									chunks[index] = append(chunks[index], sobj)
+									dirty = true
 								}
+							}
+							if !dirty {
+								sobj.reset()
+								sessionObjectPool.Put(sobj) // 回收会话内存
 							}
 							return true
 						}, func(worker int) { chunks = make([][]*sessionObject, worker) })

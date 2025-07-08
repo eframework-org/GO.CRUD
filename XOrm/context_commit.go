@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -261,23 +262,34 @@ func (cb *commitBatch) push(queueID int) {
 	nowTime := XTime.GetMicrosecond()
 
 	// 优先处理清除操作，尽早释放全局锁，提高效率
-	for _, cobj := range cb.objects {
-		if cobj.clear != nil {
-			cb.handle(cobj, queueID)
-		}
-	}
+	// 其次处理删除操作，尽早释放全局锁，提高效率
+	// 最后处理写入操作
+	sort.Slice(cb.objects, func(i, j int) bool {
+		oi := cb.objects[i]
+		oj := cb.objects[j]
 
-	// 优先处理删除操作，尽早释放全局锁，提高效率
-	for _, cobj := range cb.objects {
-		if cobj.delete {
-			cb.handle(cobj, queueID)
+		var pi, pj int
+		if oi.clear != nil {
+			pi = 0
+		} else if oi.delete {
+			pi = 1
+		} else {
+			pi = 2
 		}
-	}
+
+		if oj.clear != nil {
+			pj = 0
+		} else if oj.delete {
+			pj = 1
+		} else {
+			pj = 2
+		}
+
+		return pi < pj
+	})
 
 	for _, cobj := range cb.objects {
-		if cobj.ptr != nil && !cobj.delete && cobj.clear == nil {
-			cb.handle(cobj, queueID)
-		}
+		cb.handle(cobj, queueID)
 	}
 
 	elapsedTime := XTime.GetMicrosecond() - nowTime
