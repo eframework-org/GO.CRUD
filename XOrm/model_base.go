@@ -707,7 +707,12 @@ func parseCondition(cond beegoCondValue) (field, operator string) {
 
 // getFieldValue 获取字段值。
 func getFieldValue(model IModel, meta *modelMeta, field string) any {
-	if fmeta := meta.fields.columns[field]; fmeta != nil {
+	fmeta := meta.fields.columns[field]
+	if fmeta == nil {
+		// 兼容业务层可能传入的名称大小写，统一处理为小写，保持和原生查询一致
+		fmeta = meta.fields.columns[strings.ToLower(field)]
+	}
+	if fmeta != nil {
 		return model.DataValue(fmeta.name)
 	}
 	return nil
@@ -735,6 +740,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 	}
 
 	switch arg0 := args[0].(type) {
+	case int32:
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
+		}
+		return int64(arg0) == nvalue
 	case []int32:
 		if len(arg0) == 0 {
 			return false
@@ -758,6 +769,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 
 		_, exists := nargs[nvalue]
 		return exists
+	case int:
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
+		}
+		return int64(arg0) == nvalue
 	case []int:
 		if len(arg0) == 0 {
 			return false
@@ -781,6 +798,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 
 		_, exists := nargs[nvalue]
 		return exists
+	case int64:
+		nvalue, ok := toInt64(cvalue)
+		if !ok {
+			return false
+		}
+		return arg0 == nvalue
 	case []int64:
 		if len(arg0) == 0 {
 			return false
@@ -804,6 +827,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 
 		_, exists := nargs[nvalue]
 		return exists
+	case float32:
+		nvalue, ok := toFloat64(cvalue)
+		if !ok {
+			return false
+		}
+		return float64(arg0) == nvalue
 	case []float32:
 		if len(arg0) == 0 {
 			return false
@@ -827,6 +856,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 
 		_, exists := nargs[nvalue]
 		return exists
+	case float64:
+		nvalue, ok := toFloat64(cvalue)
+		if !ok {
+			return false
+		}
+		return arg0 == nvalue
 	case []float64:
 		if len(arg0) == 0 {
 			return false
@@ -850,6 +885,12 @@ func handleInOperator(ctx *Condition, cvalue any, args []any, field string, dept
 
 		_, exists := nargs[nvalue]
 		return exists
+	case string:
+		nvalue, ok := cvalue.(string)
+		if !ok {
+			return false
+		}
+		return arg0 == nvalue
 	case []string:
 		if len(arg0) == 0 {
 			return false

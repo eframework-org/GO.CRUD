@@ -1,5 +1,10 @@
 # 更新记录
 
+## [0.1.1] - 
+### 变更
+- 新增 XOrm/model_base.go 模块 handleInOperator 函数对单个参数的兼容
+- 新增 XOrm/model_base.go 模块 getFieldValue 函数对字段名大小写的兼容
+
 ## [0.1.0] - 2025-07-08
 ### 修复
 - 修复 XOrm 模块的会话对象 sessionObjectPool 回收异常
