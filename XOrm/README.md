@@ -83,9 +83,10 @@ func NewUser() *User {
 
 1. 生命周期：
 ```go
-Ctor(obj any)               // 构造初始化
-OnEncode()                  // 编码前回调
-OnDecode()                  // 解码后回调
+Ctor(obj any)                                               // 构造初始化
+OnEncode()                                                  // 编码前回调
+OnDecode()                                                  // 解码后回调
+OnQuery(action string, cond *orm.Condition) *orm.Condition  // 查询时回调
 ```
 
 2. 基础信息：
