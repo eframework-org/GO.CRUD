@@ -4,6 +4,7 @@
 ### 变更
 - 新增 XOrm/model_base.go 模块 handleInOperator 函数对单个参数的兼容
 - 新增 XOrm/model_base.go 模块 getFieldValue 函数对字段名大小写的兼容
+- 更新 petermattis/goid 库以适配 go1.25 版本
 
 ## [0.1.0] - 2025-07-08
 ### 修复
