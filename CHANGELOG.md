@@ -1,6 +1,6 @@
 # 更新记录
 
-## [0.1.1] - 
+## [0.1.1] - 2025-08-25
 ### 变更
 - 新增 XOrm/model_base.go 模块 handleInOperator 函数对单个参数的兼容
 - 新增 XOrm/model_base.go 模块 getFieldValue 函数对字段名大小写的兼容
